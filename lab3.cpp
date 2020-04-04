@@ -22,7 +22,8 @@ using namespace glm;
 #define ERROR_OBJ_COLOUR 3
 
 void draw();
-void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree, double orbitAngle, bool *isRasterised, bool *wrapAround);
+void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree,
+ double orbitAngle, double panOrbitAngle, double tiltOrbitAngle, bool *isRasterised, bool *wrapAround);
 
 std::vector<float> interpolate(float from, float to, int numOfValues);
 
@@ -32,10 +33,12 @@ void drawTriangle(CanvasTriangle t, int colour, float depthBuffer[WIDTH][HEIGHT]
 vec3 translateCamera(vec3 translationVector, vec3 cameraPosition);
 mat3 tiltCamera(double rotationDegree, mat3 cameraOrientation);
 mat3 panCamera(double rotationDegree, mat3 cameraOrientation);
-mat3 lookAt(vec3 cameraPosition);
+mat3 horizontalLookAt(vec3 cameraPosition);
 mat3 verticalLookAt(vec3 cameraPosition);
+mat3 lookAt(vec3 cameraPosition);
 vec3 horizontalOrbit(vec3 cameraPosition, double orbitAngle);
 vec3 verticalOrbit(vec3 cameraPosition, double orbitAngle);
+vec3 orbit(vec3 cameraPosition, double panOrbitAngle, double tiltOrbitAngle);
 
 CanvasTriangle sortVertices(CanvasTriangle t);
 void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HEIGHT]);
@@ -75,6 +78,8 @@ int main(int argc, char* argv[])
   double translationValue = 0.1;
   double rotationDegree = 1;
   double orbitAngle = 3;
+  double panOrbitAngle = 3;
+  double tiltOrbitAngle = 3;
   bool isRasterised = true;
   bool wrapAround = false;
   
@@ -84,7 +89,8 @@ int main(int argc, char* argv[])
   while(true)
   {
     // We MUST poll for events - otherwise the window will freeze !
-    if(window.pollForInputEvents(&event)) handleEvent(event, &cameraPosition, &cameraOrientation, translationValue, rotationDegree, orbitAngle, &isRasterised, &wrapAround);
+    if(window.pollForInputEvents(&event)) handleEvent(event, &cameraPosition, &cameraOrientation, translationValue, rotationDegree,
+     orbitAngle, panOrbitAngle, tiltOrbitAngle, &isRasterised, &wrapAround);
     // std::cout << cameraPosition.x << endl;
     update(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, isRasterised, wrapAround);
 
@@ -308,7 +314,8 @@ void greyscaledraw(){
   }
 }
 
-void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool isRasterised, bool wrapAround)
+void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ bool isRasterised, bool wrapAround)
 {
   // Function for performing animation (shifting artifacts or moving the camera)
   if(isRasterised) {
@@ -319,7 +326,8 @@ void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cam
   }
 }
 
-void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree, double orbitAngle, bool *isRasterised, bool *wrapAround)
+void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree,
+ double orbitAngle, double panOrbitAngle, double tiltOrbitAngle, bool *isRasterised, bool *wrapAround)
 {
   if(event.type == SDL_KEYDOWN) {
     window.clearPixels();
@@ -377,15 +385,15 @@ void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation,
       std::cout << cameraPosition->x << " ";
       std::cout << cameraPosition->y << " ";
       std::cout << cameraPosition->z << " " << endl;
-      *cameraOrientation = lookAt(*cameraPosition);
+      *cameraOrientation = horizontalLookAt(*cameraPosition);
     }
     else if(event.key.keysym.sym == SDLK_y) {
       *cameraPosition = horizontalOrbit(*cameraPosition, -orbitAngle);
-      *cameraOrientation = lookAt(*cameraPosition);
+      *cameraOrientation = horizontalLookAt(*cameraPosition);
     }
     else if(event.key.keysym.sym == SDLK_u) {
       *cameraPosition = horizontalOrbit(*cameraPosition, orbitAngle);
-      *cameraOrientation = lookAt(*cameraPosition);
+      *cameraOrientation = horizontalLookAt(*cameraPosition);
     }
     else if(event.key.keysym.sym == SDLK_i) {
       *cameraPosition = verticalOrbit(*cameraPosition, -orbitAngle);
@@ -394,6 +402,26 @@ void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation,
     else if(event.key.keysym.sym == SDLK_k) {
       *cameraPosition = verticalOrbit(*cameraPosition, orbitAngle);
       *cameraOrientation = verticalLookAt(*cameraPosition);
+    }
+    else if(event.key.keysym.sym == SDLK_z) {
+      *cameraPosition = orbit(*cameraPosition, -panOrbitAngle, 0);
+      *cameraOrientation = lookAt(*cameraPosition);
+      // *cameraOrientation = horizontalLookAt(*cameraPosition);
+    }
+    else if(event.key.keysym.sym == SDLK_x) {
+      *cameraPosition = orbit(*cameraPosition, panOrbitAngle, 0);
+      *cameraOrientation = lookAt(*cameraPosition);
+      // *cameraOrientation = horizontalLookAt(*cameraPosition);
+    }
+    else if(event.key.keysym.sym == SDLK_c) {
+      *cameraPosition = orbit(*cameraPosition, 0, -tiltOrbitAngle);
+      *cameraOrientation = lookAt(*cameraPosition);
+      // *cameraOrientation = verticalLookAt(*cameraPosition);      
+    }
+    else if(event.key.keysym.sym == SDLK_v) {
+      *cameraPosition = orbit(*cameraPosition, 0, tiltOrbitAngle);     
+      *cameraOrientation = lookAt(*cameraPosition);
+      // *cameraOrientation = verticalLookAt(*cameraPosition);
     }
   }
   else if(event.type == SDL_MOUSEBUTTONDOWN) cout << "MOUSE CLICKED" << endl;
@@ -582,7 +610,7 @@ mat3 panCamera(double rotationDegree, mat3 cameraOrientation) {
   return newCameraOrientation;
 }
 
-mat3 lookAt(vec3 cameraPosition) {
+mat3 horizontalLookAt(vec3 cameraPosition) {
   mat3 identity = mat3(1.0f);
   mat3 newCameraOrientation;
 
@@ -612,6 +640,20 @@ mat3 verticalLookAt(vec3 cameraPosition) {
   return newCameraOrientation;
 }
 
+mat3 lookAt(vec3 cameraPosition) {
+  mat3 identity = mat3(1.0f);
+  mat3 newCameraOrientation;
+
+  double panRotationDegree = atan((cameraPosition.x - CAMERAX) / cameraPosition.z)*(180/M_PI);
+  panRotationDegree = cameraPosition.z > 0 ? panRotationDegree : panRotationDegree + 180;
+  newCameraOrientation = panCamera(panRotationDegree, identity);
+
+  double tiltRotationDegree = -atan((cameraPosition.y - CAMERAY) / sqrt(pow(cameraPosition.x - CAMERAX, 2) + pow(cameraPosition.z, 2)))*(180/M_PI);
+  newCameraOrientation = tiltCamera(tiltRotationDegree, newCameraOrientation);
+  
+  return newCameraOrientation;
+}
+
 vec3 horizontalOrbit(vec3 cameraPosition, double orbitAngle) {
   vec3 newCameraPosition;
   
@@ -629,5 +671,23 @@ vec3 verticalOrbit(vec3 cameraPosition, double orbitAngle) {
                       cameraPosition.y*cos(orbitAngle*(M_PI/180)) - cameraPosition.z*sin(orbitAngle*(M_PI/180)),                    
                       cameraPosition.y*sin(orbitAngle*(M_PI/180)) + cameraPosition.z*cos(orbitAngle*(M_PI/180)));
 
+  return newCameraPosition;
+}
+
+vec3 orbit(vec3 cameraPosition, double panOrbitAngle, double tiltOrbitAngle) {
+  vec3 newCameraPosition;
+  float radius, newX, newY, newZ;
+  double theta, phi;
+
+  radius = sqrt(pow(cameraPosition.x - CAMERAX, 2) + pow(cameraPosition.y - CAMERAY, 2) + pow(cameraPosition.z, 2));
+  phi = atan2(cameraPosition.x - CAMERAX,  cameraPosition.z);
+  theta = atan2(sqrt(pow(cameraPosition.z, 2) + pow(cameraPosition.x - CAMERAX, 2)), cameraPosition.y - CAMERAY);
+
+  newX = radius * sin(theta + tiltOrbitAngle*(M_PI/180)) * sin(phi + panOrbitAngle*(M_PI/180)) + CAMERAX;
+  newY = radius * cos(theta + tiltOrbitAngle*(M_PI/180)) + CAMERAY;
+  newZ = radius * sin(theta + tiltOrbitAngle*(M_PI/180)) * cos(phi + panOrbitAngle*(M_PI/180));
+
+  newCameraPosition = vec3(newX, newY, newZ);
+  
   return newCameraPosition;
 }

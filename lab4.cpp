@@ -1,6 +1,7 @@
 #include <ModelTriangle.h>
 #include <CanvasTriangle.h>
 #include <DrawingWindow.h>
+#include <RayTriangleIntersection.h>
 #include <Utils.h>
 #include <glm/glm.hpp>
 #include <fstream>
@@ -21,10 +22,7 @@ using namespace glm;
 #define ERROR_OBJ_NAME 2
 #define ERROR_OBJ_COLOUR 3
 
-void draw();
 void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree, double orbitAngle, bool *isRasterised, bool *wrapAround);
-
-std::vector<float> interpolate(float from, float to, int numOfValues);
 
 void initDepthBuffer(float depthBuffer[WIDTH][HEIGHT]);
 void drawLine(CanvasPoint from, CanvasPoint to, float depthBuffer[WIDTH][HEIGHT], int colour, bool wrapAround);
@@ -50,10 +48,14 @@ vector<Colour> readMTL(std::string filename);
 vector<objContent> readObj(std::string filename, vector<Colour> &materials, float scalingFactor);
 Colour getColour(std::string colourName, vector<Colour> colours);
 
+RayTriangleIntersection getClosestIntersection(vector<objContent> o, vec3 cameraPosition, vec3 rayDirection);
 CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight);
 void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool wrapAround);
 void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool wrapAround);
-void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool isRasterised, bool wrapAround);
+void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ bool wrapAround);
+void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool isRasterised,
+ bool wrapAround);
 
 DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
 
@@ -79,13 +81,13 @@ int main(int argc, char* argv[])
   bool wrapAround = false;
   
   vector <objContent> cornellBox = readObj("cornell-box.obj", materials, scalingFactor);
-  drawRasterised(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
-
+//   drawRasterised(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
+  // drawRaytraced(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
   while(true)
   {
     // We MUST poll for events - otherwise the window will freeze !
     if(window.pollForInputEvents(&event)) handleEvent(event, &cameraPosition, &cameraOrientation, translationValue, rotationDegree, orbitAngle, &isRasterised, &wrapAround);
-    // std::cout << cameraPosition.x << endl;
+    
     update(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, isRasterised, wrapAround);
 
     // Need to render the frame at the end, or nothing actually gets shown on the screen !
@@ -245,74 +247,12 @@ vector<objContent> readObj(std::string filename, vector<Colour> &materials, floa
   return objectVector;
 }
 
-std::vector<float> interpolate(float from, float to, int numOfValues) {
-  
-  std::vector<float> a;
-  float step = (to - from) / (numOfValues - 1);
-
-  for(int i=0; i<numOfValues; i++) {
-    a.push_back(from + (i*step));
-  }
-
-  return a;
-}
-
-std::vector<vec3> threeInterpolate(vec3 from, vec3 to, int numOfValues) {
-  
-  std::vector<vec3> a;
-  vec3 step = (to - from) / (vec3)(float)(numOfValues - 1);
-  vec3 acc = from;
-
-  for(int i=0; i<numOfValues; i++) {
-    a.push_back(acc);
-    acc += step;
-  }
-
-  return a;
-}
-
-void draw() {
-
-  vec3 topLeft (255, 0, 0);
-  vec3 topRight (0,0,255);
-  vec3 bottomLeft (255,255,0);
-  vec3 bottomRight (0,255,0);
-
-  window.clearPixels();
-  std::vector<vec3> leftColumn = threeInterpolate(topLeft, bottomLeft, window.height);
-  std::vector<vec3> rightColumn = threeInterpolate(topRight, bottomRight, window.height);
-
-  for(int y=0; y<window.height ;y++) {
-    vec3 from = leftColumn[y];
-    vec3 to = rightColumn[y];
-
-    std::vector<vec3> vals = threeInterpolate(from, to, window.width);
-
-    for(int x=1; x<window.width ;x++) {
-      vec3 val = vals[x];
-      uint32_t colour = packRGB(val.x, val.y, val.z);
-      window.setPixelColour(x, y, colour);
-    }
-  }
-}
-
-void greyscaledraw(){
-  window.clearPixels();
-  std::vector<float> values = interpolate(255, 0, window.width);
-  for(int y=0; y<window.height ;y++) {
-    for(int x=0; x<window.width ;x++) {
-      int value = (int) values[x];
-      uint32_t colour = packRGB(value, value, value);
-      window.setPixelColour(x, y, colour);
-    }
-  }
-}
-
 void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool isRasterised, bool wrapAround)
 {
   // Function for performing animation (shifting artifacts or moving the camera)
   if(isRasterised) {
-    drawRasterised(o, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
+    //drawRasterised(o, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
+    drawRaytraced(o, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
   }
   else {
     drawWireframe(o, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
@@ -524,7 +464,33 @@ CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraP
   return canvasT;
 }
 
-void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool wrapAround) {
+RayTriangleIntersection getClosestIntersection(vector<objContent> o, vec3 cameraPosition, vec3 rayDirection) {
+    RayTriangleIntersection intersection;
+
+    float closestDistance = std::numeric_limits<float>::infinity();
+
+    intersection.intersectedTriangle.colour = Colour(0,0,0);
+    for(int i=0; i < (int)o.size(); i++) {
+        for(int j=0; j < (int)o[i].faces.size(); j++) {
+            vec3 e0 = o[i].faces[j].vertices[1] - o[i].faces[j].vertices[0];
+            vec3 e1 = o[i].faces[j].vertices[2] - o[i].faces[j].vertices[0];
+            vec3 startPointVector = cameraPosition - o[i].faces[j].vertices[0];
+            mat3 differenceMatrix(-rayDirection, e0, e1);
+            vec3 possibleSolution = glm::inverse(differenceMatrix) * startPointVector;
+            if(0 <= possibleSolution.x && 0 <= possibleSolution.y && 0 <= possibleSolution.z 
+            && possibleSolution.y + possibleSolution.z <= 1 && possibleSolution.x < closestDistance) {
+                intersection.intersectedTriangle = o[i].faces[j];                 
+                intersection.intersectionPoint = possibleSolution;
+                intersection.distanceFromCamera = possibleSolution.x;
+                closestDistance = possibleSolution.x;
+            }
+        }
+    }
+    return intersection;
+}
+
+void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ bool wrapAround) {
   float depthBuffer[WIDTH][HEIGHT];
 
   initDepthBuffer(depthBuffer);
@@ -538,7 +504,9 @@ void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, m
   }
 }
 
-void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool wrapAround) {
+void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ bool wrapAround) {
+
   float depthBuffer[WIDTH][HEIGHT];
 
   initDepthBuffer(depthBuffer);
@@ -551,6 +519,27 @@ void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, 
     }
   }
 }
+
+void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ bool wrapAround) {
+    RayTriangleIntersection intersection;
+    vec3 ray;
+    float xPoint, yPoint;
+
+    for(int x=0; x < WIDTH; x++) {
+        for(int y=0; y < HEIGHT; y++) {
+            xPoint = x - WIDTH/2;
+            yPoint = -(y - HEIGHT/2);
+            ray = vec3(xPoint, yPoint, -(WIDTH/2) / tan(M_PI/8)) * glm::inverse(cameraOrientation);
+            intersection = getClosestIntersection(o, cameraPosition, ray);
+            int colour = packRGB(intersection.intersectedTriangle.colour.red, intersection.intersectedTriangle.colour.green,
+            intersection.intersectedTriangle.colour.blue);
+            if(intersection.distanceFromCamera < INFINITY) {
+                window.setPixelColour(x, y, colour);
+            }
+        }
+    }  
+ }
 
 vec3 translateCamera(vec3 translationVector, vec3 cameraPosition) {
   vec3 newCameraPosition = cameraPosition + translationVector;

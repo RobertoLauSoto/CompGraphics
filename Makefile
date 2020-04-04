@@ -1,4 +1,4 @@
-PROJECT_NAME = lab3
+PROJECT_NAME = lab4
 
 # Define the names of key files
 SOURCE_FILE = $(PROJECT_NAME).cpp
