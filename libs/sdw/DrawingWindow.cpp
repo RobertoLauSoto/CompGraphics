@@ -20,7 +20,7 @@ DrawingWindow::DrawingWindow(int w, int h, bool fullscreen)
   uint32_t flags = SDL_WINDOW_OPENGL;
   if(fullscreen) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
   int ANYWHERE = SDL_WINDOWPOS_UNDEFINED;
-  window = SDL_CreateWindow("Q: Wireframe, WASD: Rotate, Y/U/I/K:Orbit, R:Reset, P:WrapAround", ANYWHERE, ANYWHERE, width, height, flags);
+  window = SDL_CreateWindow("1/2/3: WF/Raster/Ray, Arrows: Translate, W/A/S/D: Rotate, Y/G/H/J:Orbit, F/B: Fwd/Back", ANYWHERE, ANYWHERE, width, height, flags);
   if(window == 0) printMessageAndQuit("Could not set video mode: ", SDL_GetError());
 
   flags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC;

@@ -22,7 +22,8 @@ using namespace glm;
 #define ERROR_OBJ_NAME 2
 #define ERROR_OBJ_COLOUR 3
 
-void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree, double orbitAngle, bool *isRasterised, bool *wrapAround);
+void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree,
+ double orbitAngle, double panOrbitAngle, double tiltOrbitAngle, bool *isWireframe, bool *isRasterised, bool *isRayTraced, bool *wrapAround);
 
 void initDepthBuffer(float depthBuffer[WIDTH][HEIGHT]);
 void drawLine(CanvasPoint from, CanvasPoint to, float depthBuffer[WIDTH][HEIGHT], int colour, bool wrapAround);
@@ -30,10 +31,10 @@ void drawTriangle(CanvasTriangle t, int colour, float depthBuffer[WIDTH][HEIGHT]
 vec3 translateCamera(vec3 translationVector, vec3 cameraPosition);
 mat3 tiltCamera(double rotationDegree, mat3 cameraOrientation);
 mat3 panCamera(double rotationDegree, mat3 cameraOrientation);
-mat3 lookAt(vec3 cameraPosition);
 mat3 verticalLookAt(vec3 cameraPosition);
-vec3 horizontalOrbit(vec3 cameraPosition, double orbitAngle);
+mat3 lookAt(vec3 cameraPosition);
 vec3 verticalOrbit(vec3 cameraPosition, double orbitAngle);
+vec3 orbit(vec3 cameraPosition, double panOrbitAngle, double tiltOrbitAngle);
 
 CanvasTriangle sortVertices(CanvasTriangle t);
 void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HEIGHT]);
@@ -54,8 +55,8 @@ void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, m
 void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool wrapAround);
 void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
  bool wrapAround);
-void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool isRasterised,
- bool wrapAround);
+void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ bool isWireframe, bool isRasterised, bool isRayTraced, bool wrapAround);
 
 DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
 
@@ -77,7 +78,11 @@ int main(int argc, char* argv[])
   double translationValue = 0.1;
   double rotationDegree = 1;
   double orbitAngle = 3;
-  bool isRasterised = true;
+  double panOrbitAngle = 3;
+  double tiltOrbitAngle = 3;
+  bool isWireframe = true;
+  bool isRasterised = false;
+  bool isRayTraced = false;
   bool wrapAround = false;
   
   vector <objContent> cornellBox = readObj("cornell-box.obj", materials, scalingFactor);
@@ -86,9 +91,10 @@ int main(int argc, char* argv[])
   while(true)
   {
     // We MUST poll for events - otherwise the window will freeze !
-    if(window.pollForInputEvents(&event)) handleEvent(event, &cameraPosition, &cameraOrientation, translationValue, rotationDegree, orbitAngle, &isRasterised, &wrapAround);
+    if(window.pollForInputEvents(&event)) handleEvent(event, &cameraPosition, &cameraOrientation, translationValue, rotationDegree,
+     orbitAngle, panOrbitAngle, tiltOrbitAngle, &isWireframe, &isRasterised, &isRayTraced, &wrapAround);
     
-    update(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, isRasterised, wrapAround);
+    update(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, isWireframe, isRasterised, isRayTraced, wrapAround);
 
     // Need to render the frame at the end, or nothing actually gets shown on the screen !
     window.renderFrame();
@@ -247,19 +253,23 @@ vector<objContent> readObj(std::string filename, vector<Colour> &materials, floa
   return objectVector;
 }
 
-void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool isRasterised, bool wrapAround)
+void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ bool isWireframe, bool isRasterised, bool isRayTraced, bool wrapAround)
 {
   // Function for performing animation (shifting artifacts or moving the camera)
   if(isRasterised) {
-    //drawRasterised(o, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
+    drawRasterised(o, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
+  }
+  if (isRayTraced) {
     drawRaytraced(o, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
   }
-  else {
+  else if(isWireframe) {
     drawWireframe(o, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
   }
 }
 
-void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree, double orbitAngle, bool *isRasterised, bool *wrapAround)
+void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree,
+ double orbitAngle, double panOrbitAngle, double tiltOrbitAngle, bool *isWireframe, bool *isRasterised, bool *isRayTraced, bool *wrapAround)
 {
   if(event.type == SDL_KEYDOWN) {
     window.clearPixels();
@@ -307,8 +317,20 @@ void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation,
       *cameraPosition = vec3(CAMERAX, CAMERAY, CAMERAZ);
       *cameraOrientation = mat3(1.0f);
     }
-    else if(event.key.keysym.sym == SDLK_q) {
-      *isRasterised = !*isRasterised;
+    else if(event.key.keysym.sym == SDLK_1) {
+      *isWireframe = true;
+      *isRasterised = false;
+      *isRayTraced = false;
+    }
+    else if(event.key.keysym.sym == SDLK_2) {
+      *isWireframe = false;
+      *isRasterised = true;
+      *isRayTraced = false;
+    }
+    else if(event.key.keysym.sym == SDLK_3) {
+      *isWireframe = false;
+      *isRasterised = false;
+      *isRayTraced = true;
     }
     else if(event.key.keysym.sym == SDLK_p) {
       *wrapAround = !*wrapAround;
@@ -319,12 +341,20 @@ void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation,
       std::cout << cameraPosition->z << " " << endl;
       *cameraOrientation = lookAt(*cameraPosition);
     }
-    else if(event.key.keysym.sym == SDLK_y) {
-      *cameraPosition = horizontalOrbit(*cameraPosition, -orbitAngle);
+    else if(event.key.keysym.sym == SDLK_g) {
+      *cameraPosition = orbit(*cameraPosition, -panOrbitAngle, 0);
       *cameraOrientation = lookAt(*cameraPosition);
     }
-    else if(event.key.keysym.sym == SDLK_u) {
-      *cameraPosition = horizontalOrbit(*cameraPosition, orbitAngle);
+    else if(event.key.keysym.sym == SDLK_j) {
+      *cameraPosition = orbit(*cameraPosition, panOrbitAngle, 0);
+      *cameraOrientation = lookAt(*cameraPosition);
+    }
+    else if(event.key.keysym.sym == SDLK_y) {
+      *cameraPosition = orbit(*cameraPosition, 0, -tiltOrbitAngle);
+      *cameraOrientation = lookAt(*cameraPosition);
+    }
+    else if(event.key.keysym.sym == SDLK_h) {
+      *cameraPosition = orbit(*cameraPosition, 0, tiltOrbitAngle);     
       *cameraOrientation = lookAt(*cameraPosition);
     }
     else if(event.key.keysym.sym == SDLK_i) {
@@ -520,8 +550,7 @@ void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, 
   }
 }
 
-void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
- bool wrapAround) {
+void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool wrapAround) {
     RayTriangleIntersection intersection;
     vec3 ray;
     float xPoint, yPoint;
@@ -530,7 +559,7 @@ void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrienta
         for(int y=0; y < HEIGHT; y++) {
             xPoint = x - WIDTH/2;
             yPoint = -(y - HEIGHT/2);
-            ray = vec3(xPoint, yPoint, -(WIDTH/2) / tan(M_PI/8)) * glm::inverse(cameraOrientation);
+            ray = vec3(xPoint, yPoint, -(WIDTH/2) / tan(M_PI/8)) * (cameraOrientation);
             intersection = getClosestIntersection(o, cameraPosition, ray);
             int colour = packRGB(intersection.intersectedTriangle.colour.red, intersection.intersectedTriangle.colour.green,
             intersection.intersectedTriangle.colour.blue);
@@ -540,6 +569,7 @@ void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrienta
         }
     }  
  }
+
 
 vec3 translateCamera(vec3 translationVector, vec3 cameraPosition) {
   vec3 newCameraPosition = cameraPosition + translationVector;
@@ -571,21 +601,6 @@ mat3 panCamera(double rotationDegree, mat3 cameraOrientation) {
   return newCameraOrientation;
 }
 
-mat3 lookAt(vec3 cameraPosition) {
-  mat3 identity = mat3(1.0f);
-  mat3 newCameraOrientation;
-
-  double panRotationDegree = atan((cameraPosition.x - CAMERAX) / cameraPosition.z)*(180/M_PI);
-  panRotationDegree = cameraPosition.z >= 0 ? panRotationDegree : panRotationDegree + 180;
-  newCameraOrientation = panCamera(panRotationDegree, identity);
-
-  double tiltRotationDegree = atan(cameraPosition.z / (cameraPosition.y - CAMERAY))*(180/M_PI);
-  tiltRotationDegree = tiltRotationDegree >= 0 ? tiltRotationDegree - 90 : tiltRotationDegree + 90;
-  newCameraOrientation = tiltCamera(tiltRotationDegree, newCameraOrientation);
-
-  return newCameraOrientation;
-}
-
 mat3 verticalLookAt(vec3 cameraPosition) {
   mat3 identity = mat3(1.0f);
   mat3 newCameraOrientation;
@@ -601,14 +616,18 @@ mat3 verticalLookAt(vec3 cameraPosition) {
   return newCameraOrientation;
 }
 
-vec3 horizontalOrbit(vec3 cameraPosition, double orbitAngle) {
-  vec3 newCameraPosition;
-  
-  newCameraPosition = vec3(cameraPosition.x*cos(orbitAngle*(M_PI/180)) + cameraPosition.z*sin(orbitAngle*(M_PI/180)),
-                      cameraPosition.y,
-                      -cameraPosition.x*sin(orbitAngle*(M_PI/180)) + cameraPosition.z*cos(orbitAngle*(M_PI/180)));
+mat3 lookAt(vec3 cameraPosition) {
+  mat3 identity = mat3(1.0f);
+  mat3 newCameraOrientation;
 
-  return newCameraPosition;
+  double panRotationDegree = atan((cameraPosition.x - CAMERAX) / cameraPosition.z)*(180/M_PI);
+  panRotationDegree = cameraPosition.z > 0 ? panRotationDegree : panRotationDegree + 180;
+  newCameraOrientation = panCamera(panRotationDegree, identity);
+
+  double tiltRotationDegree = -atan((cameraPosition.y - CAMERAY) / sqrt(pow(cameraPosition.x - CAMERAX, 2) + pow(cameraPosition.z, 2)))*(180/M_PI);
+  newCameraOrientation = tiltCamera(tiltRotationDegree, newCameraOrientation);
+  
+  return newCameraOrientation;
 }
 
 vec3 verticalOrbit(vec3 cameraPosition, double orbitAngle) {
@@ -618,5 +637,23 @@ vec3 verticalOrbit(vec3 cameraPosition, double orbitAngle) {
                       cameraPosition.y*cos(orbitAngle*(M_PI/180)) - cameraPosition.z*sin(orbitAngle*(M_PI/180)),                    
                       cameraPosition.y*sin(orbitAngle*(M_PI/180)) + cameraPosition.z*cos(orbitAngle*(M_PI/180)));
 
+  return newCameraPosition;
+}
+
+vec3 orbit(vec3 cameraPosition, double panOrbitAngle, double tiltOrbitAngle) {
+  vec3 newCameraPosition;
+  float radius, newX, newY, newZ;
+  double theta, phi;
+
+  radius = sqrt(pow(cameraPosition.x - CAMERAX, 2) + pow(cameraPosition.y - CAMERAY, 2) + pow(cameraPosition.z, 2));
+  phi = atan2(cameraPosition.x - CAMERAX,  cameraPosition.z);
+  theta = atan2(sqrt(pow(cameraPosition.z, 2) + pow(cameraPosition.x - CAMERAX, 2)), cameraPosition.y - CAMERAY);
+
+  newX = radius * sin(theta + tiltOrbitAngle*(M_PI/180)) * sin(phi + panOrbitAngle*(M_PI/180)) + CAMERAX;
+  newY = radius * cos(theta + tiltOrbitAngle*(M_PI/180)) + CAMERAY;
+  newZ = radius * sin(theta + tiltOrbitAngle*(M_PI/180)) * cos(phi + panOrbitAngle*(M_PI/180));
+
+  newCameraPosition = vec3(newX, newY, newZ);
+  
   return newCameraPosition;
 }
