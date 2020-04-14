@@ -22,12 +22,51 @@ using namespace glm;
 #define ERROR_OBJ_NAME 2
 #define ERROR_OBJ_COLOUR 3
 
-void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree,
+struct objContent
+{
+  std::string objName;
+  Colour colour;
+  vector<ModelTriangle> faces;
+};
+
+struct RayObjectIntersection
+{
+  RayTriangleIntersection triangle;
+  objContent object;
+};
+
+void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, vec3 lightPos, float canvasWidth, float canvasHeight,
+ bool isWireframe, bool isRasterised, bool isRayTraced, bool wrapAround);
+void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, vec3 *lightPos, double translationValue, double rotationDegree,
  double orbitAngle, double panOrbitAngle, double tiltOrbitAngle, bool *isWireframe, bool *isRasterised, bool *isRayTraced, bool *wrapAround);
 
 void initDepthBuffer(float depthBuffer[WIDTH][HEIGHT]);
 void drawLine(CanvasPoint from, CanvasPoint to, float depthBuffer[WIDTH][HEIGHT], int colour, bool wrapAround);
 void drawTriangle(CanvasTriangle t, int colour, float depthBuffer[WIDTH][HEIGHT]);
+CanvasTriangle sortVertices(CanvasTriangle t);
+void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HEIGHT]);
+
+
+vector<Colour> readMTL(std::string filename);
+vector<objContent> readObj(std::string filename, vector<Colour> &materials, float scalingFactor);
+Colour getColour(std::string colourName, vector<Colour> colours);
+
+CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth,
+ float canvasHeight);
+void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ bool wrapAround);
+void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ bool wrapAround);
+
+RayObjectIntersection getClosestIntersection(vector<objContent> o, vec3 cameraPosition, vec3 rayDirection);
+float calcAoi(RayObjectIntersection intersection, vec3 lightPos);
+float addProxAoiLight(RayObjectIntersection intersection, vec3 lightPos, float aoi);
+float addSpecularLight(RayObjectIntersection intersection, vec3 lightPos, vec3 cameraPosition);
+float addShadow(RayObjectIntersection intersection, vec3 lightPos, vector<objContent> o, vec3 cameraPosition, float brightness);
+float addLighting(RayObjectIntersection intersection, vec3 lightPos, vec3 cameraPosition);
+void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+ vec3 lightPos, bool wrapAround);
+vec3 translateLight(vec3 translationVector, vec3 lightPos);
 vec3 translateCamera(vec3 translationVector, vec3 cameraPosition);
 mat3 tiltCamera(double rotationDegree, mat3 cameraOrientation);
 mat3 panCamera(double rotationDegree, mat3 cameraOrientation);
@@ -36,31 +75,14 @@ mat3 lookAt(vec3 cameraPosition);
 vec3 verticalOrbit(vec3 cameraPosition, double orbitAngle);
 vec3 orbit(vec3 cameraPosition, double panOrbitAngle, double tiltOrbitAngle);
 
-CanvasTriangle sortVertices(CanvasTriangle t);
-void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HEIGHT]);
-struct objContent
-{
-  std::string objName;
-  Colour colour;
-  vector<ModelTriangle> faces;
-};
-
-vector<Colour> readMTL(std::string filename);
-vector<objContent> readObj(std::string filename, vector<Colour> &materials, float scalingFactor);
-Colour getColour(std::string colourName, vector<Colour> colours);
-
-RayTriangleIntersection getClosestIntersection(vector<objContent> o, vec3 cameraPosition, vec3 rayDirection);
-CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight);
-void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool wrapAround);
-void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool wrapAround);
-void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
- bool wrapAround);
-void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
- bool isWireframe, bool isRasterised, bool isRayTraced, bool wrapAround);
-
 DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
 
-inline uint32_t packRGB(int r, int g, int b){
+
+
+inline uint32_t packRGB(int r, int g, int b, float brightness){
+  r *= brightness;
+  g *= brightness;
+  b *= brightness;
   return (255<<24) + (int(r)<<16) + (int(g)<<8) + int(b);
 }
 
@@ -74,6 +96,7 @@ int main(int argc, char* argv[])
   float canvasHeight = 30;
   vec3 cameraPosition = vec3(CAMERAX, CAMERAY, CAMERAZ);
   mat3 cameraOrientation = mat3(1.0f);
+  vec3 lightPos = vec3(-0.2, 5, -2.5);
   vector<Colour> materials;
   double translationValue = 0.1;
   double rotationDegree = 1;
@@ -86,15 +109,15 @@ int main(int argc, char* argv[])
   bool wrapAround = false;
   
   vector <objContent> cornellBox = readObj("cornell-box.obj", materials, scalingFactor);
-//   drawRasterised(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
-  // drawRaytraced(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
+
   while(true)
   {
     // We MUST poll for events - otherwise the window will freeze !
-    if(window.pollForInputEvents(&event)) handleEvent(event, &cameraPosition, &cameraOrientation, translationValue, rotationDegree,
+    if(window.pollForInputEvents(&event)) handleEvent(event, &cameraPosition, &cameraOrientation, &lightPos, translationValue, rotationDegree,
      orbitAngle, panOrbitAngle, tiltOrbitAngle, &isWireframe, &isRasterised, &isRayTraced, &wrapAround);
     
-    update(cornellBox, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, isWireframe, isRasterised, isRayTraced, wrapAround);
+    update(cornellBox, focalLength, cameraPosition, cameraOrientation, lightPos, canvasWidth, canvasHeight, isWireframe, isRasterised, isRayTraced,
+     wrapAround);
 
     // Need to render the frame at the end, or nothing actually gets shown on the screen !
     window.renderFrame();
@@ -253,22 +276,21 @@ vector<objContent> readObj(std::string filename, vector<Colour> &materials, floa
   return objectVector;
 }
 
-void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
- bool isWireframe, bool isRasterised, bool isRayTraced, bool wrapAround)
-{
+void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, vec3 lightPos, float canvasWidth, float canvasHeight,
+ bool isWireframe, bool isRasterised, bool isRayTraced, bool wrapAround) {
   // Function for performing animation (shifting artifacts or moving the camera)
   if(isRasterised) {
     drawRasterised(o, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
   }
   if (isRayTraced) {
-    drawRaytraced(o, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
+    drawRaytraced(o, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, lightPos, wrapAround);
   }
   else if(isWireframe) {
     drawWireframe(o, focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight, wrapAround);
   }
 }
 
-void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, double translationValue, double rotationDegree,
+void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation, vec3 *lightPos, double translationValue, double rotationDegree,
  double orbitAngle, double panOrbitAngle, double tiltOrbitAngle, bool *isWireframe, bool *isRasterised, bool *isRayTraced, bool *wrapAround)
 {
   if(event.type == SDL_KEYDOWN) {
@@ -331,6 +353,18 @@ void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation,
       *isWireframe = false;
       *isRasterised = false;
       *isRayTraced = true;
+    }
+    else if(event.key.keysym.sym == SDLK_4) {
+      *lightPos = translateLight(vec3(-translationValue, 0, 0), *lightPos);
+    }
+    else if(event.key.keysym.sym == SDLK_5) {
+      *lightPos = translateLight(vec3(translationValue, 0, 0), *lightPos);
+    }
+    else if(event.key.keysym.sym == SDLK_6) {
+      *lightPos = translateLight(vec3(0, 0, -translationValue), *lightPos);
+    }
+    else if(event.key.keysym.sym == SDLK_7) {
+      *lightPos = translateLight(vec3(0, 0, translationValue), *lightPos);
     }
     else if(event.key.keysym.sym == SDLK_p) {
       *wrapAround = !*wrapAround;
@@ -470,7 +504,8 @@ void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HE
   }
 }
 
-CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight) {
+CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth,
+ float canvasHeight) {
   float normalX, normalY;
   float rasterX, rasterY;
   float depth;
@@ -494,12 +529,12 @@ CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraP
   return canvasT;
 }
 
-RayTriangleIntersection getClosestIntersection(vector<objContent> o, vec3 cameraPosition, vec3 rayDirection) {
-    RayTriangleIntersection intersection;
+RayObjectIntersection getClosestIntersection(vector<objContent> o, vec3 cameraPosition, vec3 rayDirection) {
+    RayObjectIntersection intersection;
 
     float closestDistance = std::numeric_limits<float>::infinity();
 
-    intersection.intersectedTriangle.colour = Colour(0,0,0);
+    intersection.triangle.intersectedTriangle.colour = Colour(0,0,0);
     for(int i=0; i < (int)o.size(); i++) {
         for(int j=0; j < (int)o[i].faces.size(); j++) {
             vec3 e0 = o[i].faces[j].vertices[1] - o[i].faces[j].vertices[0];
@@ -509,14 +544,104 @@ RayTriangleIntersection getClosestIntersection(vector<objContent> o, vec3 camera
             vec3 possibleSolution = glm::inverse(differenceMatrix) * startPointVector;
             if(0 <= possibleSolution.x && 0 <= possibleSolution.y && 0 <= possibleSolution.z 
             && possibleSolution.y + possibleSolution.z <= 1 && possibleSolution.x < closestDistance) {
-                intersection.intersectedTriangle = o[i].faces[j];                 
-                intersection.intersectionPoint = possibleSolution;
-                intersection.distanceFromCamera = possibleSolution.x;
+                intersection.triangle.intersectedTriangle = o[i].faces[j];                 
+                intersection.triangle.intersectionPoint = o[i].faces[j].vertices[0] + possibleSolution.y*e0 + possibleSolution.z*e1;
+                intersection.triangle.distanceFromCamera = possibleSolution.x;
+                intersection.object = o[i];
                 closestDistance = possibleSolution.x;
             }
         }
     }
     return intersection;
+}
+
+float calcAoi(RayObjectIntersection intersection, vec3 lightPos) {
+  vec3 normal, pointToLight;
+  float aoi;
+
+  normal = glm::normalize(glm::cross(intersection.triangle.intersectedTriangle.vertices[1]-intersection.triangle.intersectedTriangle.vertices[0],
+                      intersection.triangle.intersectedTriangle.vertices[2]-intersection.triangle.intersectedTriangle.vertices[0]));
+  
+  pointToLight = glm::normalize(lightPos - intersection.triangle.intersectionPoint);
+  aoi = glm::dot(normal, pointToLight);
+
+  return aoi;
+}
+
+float addProxAoiLight(RayObjectIntersection intersection, vec3 lightPos, float aoi) {
+  float brightness, length;
+  
+  length = glm::length(lightPos - intersection.triangle.intersectionPoint);
+  brightness = 400 * glm::max(aoi, 0.0f) / (4 * M_PI * pow(length, 2));
+
+  return brightness;
+}
+
+float addSpecularLight(RayObjectIntersection intersection, vec3 lightPos, vec3 cameraPosition) {
+  vec3 normal, view, lightToPoint, reflection;
+  float specBrightness;
+
+  normal = glm::normalize(glm::cross(intersection.triangle.intersectedTriangle.vertices[1]-intersection.triangle.intersectedTriangle.vertices[0],
+                      intersection.triangle.intersectedTriangle.vertices[2]-intersection.triangle.intersectedTriangle.vertices[0]));
+
+  view = glm::normalize(cameraPosition - intersection.triangle.intersectionPoint);
+  lightToPoint = glm::normalize(intersection.triangle.intersectionPoint - lightPos);
+  reflection = lightToPoint - ((2.0f*normal) * glm::dot(normal, lightToPoint));
+
+  specBrightness = glm::pow(glm::dot(view, reflection), 1.0f);
+
+  return specBrightness;
+}
+
+float addLighting(RayObjectIntersection intersection, vec3 lightPos, vec3 cameraPosition) {
+  float aoi, proxAoiBrightness, specBrightness, brightness;
+
+  aoi = calcAoi(intersection, lightPos);
+  proxAoiBrightness = addProxAoiLight(intersection, lightPos, aoi);
+  specBrightness = addSpecularLight(intersection, lightPos, cameraPosition);
+
+  brightness = proxAoiBrightness * specBrightness;
+
+  if (brightness < 0.2f) brightness = 0.2f;
+  if (brightness > 1.0f) brightness = 1.0f;
+
+  return brightness;
+}
+
+float addShadow(RayObjectIntersection intersection, vec3 lightPos, vector<objContent> o, vec3 cameraPosition, float brightness) {
+  RayObjectIntersection shadowIntersection;
+  vec3 shadowRay;
+  float shadowRayToObjectDistance, shadowRayToLightDistance, newBrightness;
+
+  shadowRay = lightPos - intersection.triangle.intersectionPoint;
+
+  for(int i=0; i < (int)o.size(); i++) {
+        for(int j=0; j < (int)o[i].faces.size(); j++) {
+            vec3 e0 = o[i].faces[j].vertices[1] - o[i].faces[j].vertices[0];
+            vec3 e1 = o[i].faces[j].vertices[2] - o[i].faces[j].vertices[0];
+            vec3 startPointVector = intersection.triangle.intersectionPoint - o[i].faces[j].vertices[0];
+            mat3 differenceMatrix(-shadowRay, e0, e1);
+            vec3 possibleSolution = glm::inverse(differenceMatrix) * startPointVector;
+            if(0 <= possibleSolution.x && 0 <= possibleSolution.y && 0 <= possibleSolution.z 
+            && possibleSolution.y + possibleSolution.z <= 1 ) {
+                shadowIntersection.triangle.intersectionPoint = o[i].faces[j].vertices[0] + possibleSolution.y*e0 + possibleSolution.z*e1;
+                shadowIntersection.triangle.intersectedTriangle = o[i].faces[j];
+                shadowIntersection.object = o[i];
+            }
+        }
+    }
+
+  shadowRayToObjectDistance = glm::distance(intersection.triangle.intersectionPoint, shadowIntersection.triangle.intersectionPoint);
+  shadowRayToLightDistance = glm::distance(intersection.triangle.intersectionPoint, lightPos);
+
+  if (shadowRayToObjectDistance < shadowRayToLightDistance && shadowRayToLightDistance > 5
+      && intersection.object.objName != shadowIntersection.object.objName) {
+    newBrightness = 0.1f;
+  } else {
+    newBrightness = brightness;
+  }
+
+  return newBrightness;
 }
 
 void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
@@ -528,7 +653,7 @@ void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, m
   for(int i=0; i < (int)o.size(); i++) {
     for(int j=0; j < (int)o[i].faces.size(); j++) {
       CanvasTriangle t = modelToCanvas(o[i].faces[j], focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight);
-      int colour = packRGB(o[i].colour.red, o[i].colour.green, o[i].colour.blue);
+      int colour = packRGB(o[i].colour.red, o[i].colour.green, o[i].colour.blue, 1.0f);
       drawTriangle(t, colour, depthBuffer, wrapAround);
     }
   }
@@ -544,32 +669,41 @@ void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, 
   for(int i=0; i < (int)o.size(); i++) {
     for(int j=0; j < (int)o[i].faces.size(); j++) {
       CanvasTriangle t = modelToCanvas(o[i].faces[j], focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight);
-      int colour = packRGB(o[i].colour.red, o[i].colour.green, o[i].colour.blue);
+      int colour = packRGB(o[i].colour.red, o[i].colour.green, o[i].colour.blue, 1.0f);
       fillTriangle(t, colour, depthBuffer, wrapAround);
     }
   }
 }
 
-void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight, bool wrapAround) {
-    RayTriangleIntersection intersection;
+void drawRaytraced(vector<objContent> o, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth, float canvasHeight,
+vec3 lightPos, bool wrapAround) {
+    RayObjectIntersection intersection;
     vec3 ray;
-    float xPoint, yPoint;
+    CanvasPoint drawPoint;
+    float noShadowBrightness;
 
     for(int x=0; x < WIDTH; x++) {
         for(int y=0; y < HEIGHT; y++) {
-            xPoint = x - WIDTH/2;
-            yPoint = -(y - HEIGHT/2);
-            ray = vec3(xPoint, yPoint, -(WIDTH/2) / tan(M_PI/8)) * (cameraOrientation);
+            drawPoint.x = x - WIDTH/2;
+            drawPoint.y = -(y - HEIGHT/2);
+            ray = vec3(drawPoint.x, drawPoint.y, -(WIDTH/2) / tan(M_PI/8)) * cameraOrientation;
             intersection = getClosestIntersection(o, cameraPosition, ray);
-            int colour = packRGB(intersection.intersectedTriangle.colour.red, intersection.intersectedTriangle.colour.green,
-            intersection.intersectedTriangle.colour.blue);
-            if(intersection.distanceFromCamera < INFINITY) {
+            noShadowBrightness = addLighting(intersection, lightPos, cameraPosition);
+            drawPoint.brightness = addShadow(intersection, lightPos, o, cameraPosition, noShadowBrightness);
+            int colour = packRGB(intersection.triangle.intersectedTriangle.colour.red, intersection.triangle.intersectedTriangle.colour.green,
+            intersection.triangle.intersectedTriangle.colour.blue, drawPoint.brightness);
+            if(intersection.triangle.distanceFromCamera < INFINITY) {
                 window.setPixelColour(x, y, colour);
             }
         }
     }  
  }
 
+vec3 translateLight(vec3 translationVector, vec3 lightPos) {
+  vec3 newLightPos = lightPos + translationVector;
+
+  return newLightPos;
+}
 
 vec3 translateCamera(vec3 translationVector, vec3 cameraPosition) {
   vec3 newCameraPosition = cameraPosition + translationVector;
