@@ -283,6 +283,8 @@ vector<objContent> readObj(std::string filename, vector<Colour> &materials, floa
 Image readPPM(const char *filename)
 {
     std::ifstream ifs;
+    std::string line;
+    std::string ppmCommand;
     ifs.open(filename, std::ios::binary);
     Image ppm;
     try {
@@ -295,6 +297,8 @@ Image readPPM(const char *filename)
         if (strcmp(header.c_str(), "P6") != 0) {
            throw("Can't read input file");
         }
+        ifs >> ppmCommand;
+        ifs.ignore(256, '\n');
         ifs >> w >> h >> b;
         ppm.w = w;
         ppm.h = h;
