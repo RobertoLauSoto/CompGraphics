@@ -3,11 +3,13 @@
 #include <DrawingWindow.h>
 #include <RayTriangleIntersection.h>
 #include <Utils.h>
+#include <Image.h>
 #include <glm/glm.hpp>
 #include <fstream>
 #include <vector>
 #include <sstream>
 #include <iomanip>
+
 
 using namespace std;
 using namespace glm;
@@ -49,6 +51,7 @@ void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HE
 
 vector<Colour> readMTL(std::string filename);
 vector<objContent> readObj(std::string filename, vector<Colour> &materials, float scalingFactor);
+Image readPPM(const char *filename);
 Colour getColour(std::string colourName, vector<Colour> colours);
 
 CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth,
@@ -107,15 +110,16 @@ int main(int argc, char* argv[])
   bool isRasterised = false;
   bool isRayTraced = false;
   bool wrapAround = false;
-  
+
   vector <objContent> cornellBox = readObj("cornell-box.obj", materials, scalingFactor);
+  Image ppm = readPPM("texture.ppm");
 
   while(true)
   {
     // We MUST poll for events - otherwise the window will freeze !
     if(window.pollForInputEvents(&event)) handleEvent(event, &cameraPosition, &cameraOrientation, &lightPos, translationValue, rotationDegree,
      orbitAngle, panOrbitAngle, tiltOrbitAngle, &isWireframe, &isRasterised, &isRayTraced, &wrapAround);
-    
+
     update(cornellBox, focalLength, cameraPosition, cameraOrientation, lightPos, canvasWidth, canvasHeight, isWireframe, isRasterised, isRayTraced,
      wrapAround);
 
@@ -152,7 +156,7 @@ vector<Colour> readMTL(std::string filename) {
     else {
       std::cerr << "error reading newmtl" << endl;
     }
-    
+
     std::getline(in, line);
     std::istringstream nextLine(line);
     nextLine >> mtlCommand;
@@ -162,10 +166,10 @@ vector<Colour> readMTL(std::string filename) {
     else {
       std::cerr << "error reading rgbvalues" << endl;
     }
-    
+
     Colour colour(colourName, round(r*255), round(g*255), round(b*255));
-    material.push_back(colour);  
-    std::getline(in, line);   
+    material.push_back(colour);
+    std::getline(in, line);
   }
 
   return material;
@@ -202,7 +206,7 @@ vector<objContent> readObj(std::string filename, vector<Colour> &materials, floa
     std::cerr << "error reading mtl file" << endl;
     exit(ERROR_MTL);
   }
-  std::getline(in, line); 
+  std::getline(in, line);
 
   while(in.eof() == false) {
     objContent object;
@@ -276,6 +280,43 @@ vector<objContent> readObj(std::string filename, vector<Colour> &materials, floa
   return objectVector;
 }
 
+Image readPPM(const char *filename)
+{
+    std::ifstream ifs;
+    ifs.open(filename, std::ios::binary);
+    Image ppm;
+    try {
+        if (ifs.fail()) {
+            throw("Can't open input file");
+        }
+        std::string header;
+        int w, h, b;
+        ifs >> header;
+        if (strcmp(header.c_str(), "P6") != 0) {
+           throw("Can't read input file");
+        }
+        ifs >> w >> h >> b;
+        ppm.w = w;
+        ppm.h = h;
+        ppm.pixels = new Image::Rgb[w * h];
+        ifs.ignore(256, '\n');
+        unsigned char pix[3];
+        for (int i = 0; i < w * h; ++i) {
+            ifs.read(reinterpret_cast<char *>(pix), 3);
+            ppm.pixels[i].r = pix[0] / 255.f;
+            ppm.pixels[i].g = pix[1] / 255.f;
+            ppm.pixels[i].b = pix[2] / 255.f;
+        }
+        ifs.close();
+    }
+    catch (const char *err) {
+        fprintf(stderr, "%s\n", err);
+        ifs.close();
+    }
+
+    return ppm;
+}
+
 void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, vec3 lightPos, float canvasWidth, float canvasHeight,
  bool isWireframe, bool isRasterised, bool isRayTraced, bool wrapAround) {
   // Function for performing animation (shifting artifacts or moving the camera)
@@ -298,11 +339,11 @@ void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation,
     if(event.key.keysym.sym == SDLK_LEFT) {
       // cout << "LEFT" << endl;
       *cameraPosition = translateCamera(vec3(-translationValue, 0, 0), *cameraPosition);
-    } 
+    }
     else if(event.key.keysym.sym == SDLK_RIGHT) {
       // cout << "RIGHT" << endl;
       *cameraPosition = translateCamera(vec3(translationValue, 0, 0), *cameraPosition);
-    } 
+    }
     else if(event.key.keysym.sym == SDLK_UP) {
       // cout << "UP" << endl;
       *cameraPosition = translateCamera(vec3(0, translationValue, 0), *cameraPosition);
@@ -388,7 +429,7 @@ void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation,
       *cameraOrientation = lookAt(*cameraPosition);
     }
     else if(event.key.keysym.sym == SDLK_h) {
-      *cameraPosition = orbit(*cameraPosition, 0, tiltOrbitAngle);     
+      *cameraPosition = orbit(*cameraPosition, 0, tiltOrbitAngle);
       *cameraOrientation = lookAt(*cameraPosition);
     }
     else if(event.key.keysym.sym == SDLK_i) {
@@ -524,7 +565,7 @@ CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraP
     CanvasPoint p(rasterX, rasterY, depth);
     canvasPoints.push_back(p);
   }
-  
+
   CanvasTriangle canvasT(canvasPoints[0], canvasPoints[1], canvasPoints[2], modelT.colour);
   return canvasT;
 }
@@ -542,9 +583,9 @@ RayObjectIntersection getClosestIntersection(vector<objContent> o, vec3 cameraPo
             vec3 startPointVector = cameraPosition - o[i].faces[j].vertices[0];
             mat3 differenceMatrix(-rayDirection, e0, e1);
             vec3 possibleSolution = glm::inverse(differenceMatrix) * startPointVector;
-            if(0 <= possibleSolution.x && 0 <= possibleSolution.y && 0 <= possibleSolution.z 
+            if(0 <= possibleSolution.x && 0 <= possibleSolution.y && 0 <= possibleSolution.z
             && possibleSolution.y + possibleSolution.z <= 1 && possibleSolution.x < closestDistance) {
-                intersection.triangle.intersectedTriangle = o[i].faces[j];                 
+                intersection.triangle.intersectedTriangle = o[i].faces[j];
                 intersection.triangle.intersectionPoint = o[i].faces[j].vertices[0] + possibleSolution.y*e0 + possibleSolution.z*e1;
                 intersection.triangle.distanceFromCamera = possibleSolution.x;
                 intersection.object = o[i];
@@ -561,7 +602,7 @@ float calcAoi(RayObjectIntersection intersection, vec3 lightPos) {
 
   normal = glm::normalize(glm::cross(intersection.triangle.intersectedTriangle.vertices[1]-intersection.triangle.intersectedTriangle.vertices[0],
                       intersection.triangle.intersectedTriangle.vertices[2]-intersection.triangle.intersectedTriangle.vertices[0]));
-  
+
   pointToLight = glm::normalize(lightPos - intersection.triangle.intersectionPoint);
   aoi = glm::dot(normal, pointToLight);
 
@@ -570,7 +611,7 @@ float calcAoi(RayObjectIntersection intersection, vec3 lightPos) {
 
 float addProxAoiLight(RayObjectIntersection intersection, vec3 lightPos, float aoi) {
   float brightness, length;
-  
+
   length = glm::length(lightPos - intersection.triangle.intersectionPoint);
   brightness = 400 * glm::max(aoi, 0.0f) / (4 * M_PI * pow(length, 2));
 
@@ -622,7 +663,7 @@ float addShadow(RayObjectIntersection intersection, vec3 lightPos, vector<objCon
             vec3 startPointVector = intersection.triangle.intersectionPoint - o[i].faces[j].vertices[0];
             mat3 differenceMatrix(-shadowRay, e0, e1);
             vec3 possibleSolution = glm::inverse(differenceMatrix) * startPointVector;
-            if(0 <= possibleSolution.x && 0 <= possibleSolution.y && 0 <= possibleSolution.z 
+            if(0 <= possibleSolution.x && 0 <= possibleSolution.y && 0 <= possibleSolution.z
             && possibleSolution.y + possibleSolution.z <= 1 ) {
                 shadowIntersection.triangle.intersectionPoint = o[i].faces[j].vertices[0] + possibleSolution.y*e0 + possibleSolution.z*e1;
                 shadowIntersection.triangle.intersectedTriangle = o[i].faces[j];
@@ -696,7 +737,7 @@ vec3 lightPos, bool wrapAround) {
                 window.setPixelColour(x, y, colour);
             }
         }
-    }  
+    }
  }
 
 vec3 translateLight(vec3 translationVector, vec3 lightPos) {
@@ -714,7 +755,7 @@ vec3 translateCamera(vec3 translationVector, vec3 cameraPosition) {
 mat3 tiltCamera(double rotationDegree, mat3 cameraOrientation) {
   mat3 newCameraOrientation;
   mat3 rotationMatrix = mat3(1.0f);
-  
+
   rotationMatrix[0] = vec3(1, 0, 0);
   rotationMatrix[1] = vec3(0, cos(rotationDegree*(M_PI/180)), -sin(rotationDegree*(M_PI/180)));
   rotationMatrix[2] = vec3(0, sin(rotationDegree*(M_PI/180)), cos(rotationDegree*(M_PI/180)));
@@ -726,10 +767,10 @@ mat3 tiltCamera(double rotationDegree, mat3 cameraOrientation) {
 mat3 panCamera(double rotationDegree, mat3 cameraOrientation) {
   mat3 newCameraOrientation;
   mat3 rotationMatrix = mat3(1.0f);
-  
+
   rotationMatrix[0] = vec3(cos(rotationDegree*(M_PI/180)), 0, sin(rotationDegree*(M_PI/180)));
   rotationMatrix[1] = vec3(0, 1, 0);
-  rotationMatrix[2] = vec3(-sin(rotationDegree*(M_PI/180)), 0, cos(rotationDegree*(M_PI/180)));  
+  rotationMatrix[2] = vec3(-sin(rotationDegree*(M_PI/180)), 0, cos(rotationDegree*(M_PI/180)));
 
   newCameraOrientation = rotationMatrix * cameraOrientation;
   return newCameraOrientation;
@@ -760,7 +801,7 @@ mat3 lookAt(vec3 cameraPosition) {
 
   double tiltRotationDegree = -atan((cameraPosition.y - CAMERAY) / sqrt(pow(cameraPosition.x - CAMERAX, 2) + pow(cameraPosition.z, 2)))*(180/M_PI);
   newCameraOrientation = tiltCamera(tiltRotationDegree, newCameraOrientation);
-  
+
   return newCameraOrientation;
 }
 
@@ -768,7 +809,7 @@ vec3 verticalOrbit(vec3 cameraPosition, double orbitAngle) {
   vec3 newCameraPosition;
 
   newCameraPosition = vec3(cameraPosition.x,
-                      cameraPosition.y*cos(orbitAngle*(M_PI/180)) - cameraPosition.z*sin(orbitAngle*(M_PI/180)),                    
+                      cameraPosition.y*cos(orbitAngle*(M_PI/180)) - cameraPosition.z*sin(orbitAngle*(M_PI/180)),
                       cameraPosition.y*sin(orbitAngle*(M_PI/180)) + cameraPosition.z*cos(orbitAngle*(M_PI/180)));
 
   return newCameraPosition;
@@ -788,6 +829,6 @@ vec3 orbit(vec3 cameraPosition, double panOrbitAngle, double tiltOrbitAngle) {
   newZ = radius * sin(theta + tiltOrbitAngle*(M_PI/180)) * cos(phi + panOrbitAngle*(M_PI/180));
 
   newCameraPosition = vec3(newX, newY, newZ);
-  
+
   return newCameraPosition;
 }
