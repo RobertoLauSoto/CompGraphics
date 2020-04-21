@@ -4,6 +4,7 @@
 #include <RayTriangleIntersection.h>
 #include <Utils.h>
 #include <Image.h>
+#include <mtl.h>
 #include <glm/glm.hpp>
 #include <fstream>
 #include <vector>
@@ -50,6 +51,7 @@ void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HE
 
 
 vector<Colour> readMTL(std::string filename);
+vector<Mtl> readLogoMTL(std::string filename);
 vector<objContent> readObj(std::string filename, vector<Colour> &materials, float scalingFactor);
 Image readPPM(const char *filename);
 Colour getColour(std::string colourName, vector<Colour> colours);
@@ -114,6 +116,10 @@ int main(int argc, char* argv[])
   vector <objContent> cornellBox = readObj("cornell-box.obj", materials, scalingFactor);
   Image ppm = readPPM("texture.ppm");
 
+  vector<Mtl> material = readLogoMTL("logo.mtl");
+
+
+
   while(true)
   {
     // We MUST poll for events - otherwise the window will freeze !
@@ -169,6 +175,38 @@ vector<Colour> readMTL(std::string filename) {
 
     Colour colour(colourName, round(r*255), round(g*255), round(b*255));
     material.push_back(colour);
+    std::getline(in, line);
+  }
+
+  return material;
+}
+
+vector<Mtl> readLogoMTL(std::string filename) {
+  vector<Mtl> material;
+  Mtl mtl;
+  std::ifstream in(filename, std::ios::in);
+  std::string line;
+
+  while (in.eof() == false) {
+    std::string mtlCommand;
+    std::string s; //texture scalar
+    std::string o; //texture map position
+    std::string mm; //texture scalar variability
+    std::string ppm; //texture filename
+    float us, vs, ws, uo, vo, wo, base, gain;
+
+    std::getline(in, line);
+    std::istringstream inLine(line);
+    inLine >> mtlCommand;
+    if(mtlCommand == "map_Kd"){
+      inLine >> s >> us >> vs >> ws >> o >> uo >> vo >> wo >> mm >> base >> gain >> ppm;
+    }
+    else {
+      std::cerr << "error reading newmtl" << endl;
+    }
+
+    Mtl mtl(ppm, us, vs, ws, uo, vo, wo, base, gain);
+    material.push_back(mtl);
     std::getline(in, line);
   }
 
