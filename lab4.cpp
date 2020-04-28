@@ -359,6 +359,41 @@ Image readPPM(const char *filename)
     return ppm;
 }
 
+bool Image::operator >> (const char *filename, Image ppm, int width, int height)
+{
+    std::ofstream ifs;
+    ifs.open(filename, std::ios::binary);
+    try {
+        if (ifs.fail()) {
+            throw("Can't open file");
+        }
+        ifs << "P6" <<"\n";
+        ifs << ppm.w << "\n";
+        ifs << ppm.h << "\n";
+        ifs << "255" << "\n";
+        int size = height * width;
+        std::vector<unsigned char> temp(size*3);
+        Vec3<float>* buff = static_cast<Vec3<float>*>(ppm.pixels);
+        for (int i = 0; i < size; i++) {
+            temp[i * 3] = static_cast<unsigned char>(buff[i].x * 255);
+            temp[i * 3 + 1] = static_cast<unsigned char>(buff[i].y * 255);
+            temp[i * 3 + 2] = static_cast<unsigned char>(buff[i].z * 255);
+        }
+        ifs.write(reinterpret_cast<char*>(&temp[0]), size * 3);
+        if (ifs.fail()) {
+          cerr << "Could not write data" << endl;
+          return false;
+        }
+        ifs.close();
+    }
+    catch (const char *err) {
+        fprintf(stderr, "%s\n", err);
+        ifs.close();
+    }
+
+    return true;
+}
+
 void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, vec3 lightPos, float canvasWidth, float canvasHeight,
  bool isWireframe, bool isRasterised, bool isRayTraced, bool wrapAround) {
   // Function for performing animation (shifting artifacts or moving the camera)
