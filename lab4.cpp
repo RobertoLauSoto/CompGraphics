@@ -206,44 +206,8 @@ mtlContent readMTL(std::string filename) {
   return mtlContent;
 }
 
-<<<<<<< HEAD
 
 Colour getColour(std::string colourName, mtlContent materials) {
-=======
-vector<Mtl> readLogoMTL(std::string filename) {
-  vector<Mtl> material;
-  Mtl mtl;
-  std::ifstream in(filename, std::ios::in);
-  std::string line;
-
-  while (in.eof() == false) {
-    std::string mtlCommand;
-    std::string s; //texture scalar
-    std::string o; //texture map position
-    std::string mm; //texture scalar variability
-    std::string ppm; //texture filename
-    float us, vs, ws, uo, vo, wo, base, gain;
-
-    std::getline(in, line);
-    std::istringstream inLine(line);
-    inLine >> mtlCommand;
-    if(mtlCommand == "map_Kd"){
-      inLine >> s >> us >> vs >> ws >> o >> uo >> vo >> wo >> mm >> base >> gain >> ppm;
-    }
-    else {
-      std::cerr << "error reading newmtl" << endl;
-    }
-
-    Mtl mtl(ppm, us, vs, ws, uo, vo, wo, base, gain);
-    material.push_back(mtl);
-    std::getline(in, line);
-  }
-
-  return material;
-}
-
-Colour getColour(std::string colourName, vector<Colour> colours) {
->>>>>>> 8b38b810451bd465e7940094263405a0845f4495
   Colour colour;
   for(int i=0; i < (int)materials.colours.size(); i++) {
     if(colourName == materials.colours[i].name){
