@@ -1,0 +1,26 @@
+newmtl White
+Kd 1.00 1.00 1.00
+
+newmtl Grey
+Kd 0.70 0.70 0.70
+
+newmtl Red
+Kd 1.00 0.00 0.00
+
+newmtl Green
+Kd 0.00 1.00 0.00
+
+newmtl Blue
+Kd 0.00 0.00 1.00
+
+newmtl Yellow
+Kd 1.00 1.00 0.00
+
+newmtl Magenta
+Kd 1.00 0.00 1.00
+
+newmtl Cyan
+Kd 0.00 1.00 1.00
+
+newmtl logoColor
+map_Kd checkerboard.ppm

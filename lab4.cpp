@@ -24,10 +24,19 @@ using namespace glm;
 #define ERROR_OBJ_NAME 2
 #define ERROR_OBJ_COLOUR 3
 
+struct mtlContent
+{
+  vector<Colour> colours;
+  std::string textureName;
+  std::string textureFileName;
+  Image texture;
+};
+
 struct objContent
 {
   std::string objName;
   Colour colour;
+  Image texture;
   vector<ModelTriangle> faces;
 };
 
@@ -44,15 +53,21 @@ void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation,
 
 void initDepthBuffer(float depthBuffer[WIDTH][HEIGHT]);
 void drawLine(CanvasPoint from, CanvasPoint to, float depthBuffer[WIDTH][HEIGHT], int colour, bool wrapAround);
+void drawTextureLine(CanvasPoint from, CanvasPoint to, float depthBuffer[WIDTH][HEIGHT], Image sourceTexture, vec3 cameraPosition, bool wrapAround);
 void drawTriangle(CanvasTriangle t, int colour, float depthBuffer[WIDTH][HEIGHT]);
 CanvasTriangle sortVertices(CanvasTriangle t);
 void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HEIGHT]);
+void textureTriangle(CanvasTriangle t, Image texture, float depthBuffer[WIDTH][HEIGHT], vec3 cameraPosition, bool wrapAround);
 
 
-vector<Colour> readMTL(std::string filename);
-vector<objContent> readObj(std::string filename, vector<Colour> &materials, float scalingFactor);
-Image readPPM(const char *filename);
-Colour getColour(std::string colourName, vector<Colour> colours);
+mtlContent readMTL(std::string filename);
+std::string readLogoMTL(std::string filename);
+vector<objContent> readObj(std::string filename, mtlContent &materials, float scalingFactor);
+Image readPPM(std::string filename);
+Colour getColour(std::string colourName, mtlContent materials);
+Image getTexture(std::string textureName, mtlContent material);
+void applyTexture(CanvasTriangle t, objContent object, float depthBuffer[WIDTH][HEIGHT], vec3 cameraPosition, bool wrapAround);
+
 
 CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth,
  float canvasHeight);
@@ -77,6 +92,7 @@ mat3 verticalLookAt(vec3 cameraPosition);
 mat3 lookAt(vec3 cameraPosition);
 vec3 verticalOrbit(vec3 cameraPosition, double orbitAngle);
 vec3 orbit(vec3 cameraPosition, double panOrbitAngle, double tiltOrbitAngle);
+void applyPPM(vector<objContent> content, Image ppmFile);
 
 DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
 
@@ -99,8 +115,8 @@ int main(int argc, char* argv[])
   float canvasHeight = 30;
   vec3 cameraPosition = vec3(CAMERAX, CAMERAY, CAMERAZ);
   mat3 cameraOrientation = mat3(1.0f);
-  vec3 lightPos = vec3(-0.2, 5, -2.5);
-  vector<Colour> materials;
+  vec3 lightPos = vec3(-0.2, 5, -4);
+  mtlContent materials;
   double translationValue = 0.1;
   double rotationDegree = 1;
   double orbitAngle = 3;
@@ -111,9 +127,7 @@ int main(int argc, char* argv[])
   bool isRayTraced = false;
   bool wrapAround = false;
 
-  vector <objContent> cornellBox = readObj("cornell-box.obj", materials, scalingFactor);
-  Image ppm = readPPM("texture.ppm");
-
+  vector <objContent> cornellBox = readObj("test3.obj", materials, scalingFactor);
   while(true)
   {
     // We MUST poll for events - otherwise the window will freeze !
@@ -136,8 +150,9 @@ void initDepthBuffer(float depthBuffer[WIDTH][HEIGHT]) {
   }
 }
 
-vector<Colour> readMTL(std::string filename) {
-  vector<Colour> material;
+mtlContent readMTL(std::string filename) {
+  mtlContent mtlContent;
+  vector<Colour> colours;
   Colour colour;
   std::ifstream in(filename, std::ios::in);
   std::string line;
@@ -145,6 +160,7 @@ vector<Colour> readMTL(std::string filename) {
   while (in.eof() == false) {
     std::string mtlCommand;
     std::string colourName;
+    std::string textureFileName;
     float r, g ,b;
 
     std::getline(in, line);
@@ -160,33 +176,62 @@ vector<Colour> readMTL(std::string filename) {
     std::getline(in, line);
     std::istringstream nextLine(line);
     nextLine >> mtlCommand;
-    if(mtlCommand == "Kd") {
+    if(mtlCommand == "Kd" && mtlCommand != "map_Kd") {
       nextLine >> r >> g >> b;
     }
+    else if(mtlCommand == "map_Kd") {
+      nextLine >> textureFileName;
+    }
     else {
-      std::cerr << "error reading rgbvalues" << endl;
+      std::cerr << "error reading colour/texture" << endl;
     }
 
     Colour colour(colourName, round(r*255), round(g*255), round(b*255));
-    material.push_back(colour);
+    colours.push_back(colour);
+    mtlContent.textureName = colourName;
+    mtlContent.textureFileName = textureFileName;
     std::getline(in, line);
   }
+  mtlContent.colours = colours;
 
-  return material;
+  return mtlContent;
 }
 
-Colour getColour(std::string colourName, vector<Colour> colours) {
+
+Colour getColour(std::string colourName, mtlContent materials) {
   Colour colour;
-  for(int i=0; i < (int)colours.size(); i++) {
-    if(colourName == colours[i].name){
-      colour = colours[i];
+  for(int i=0; i < (int)materials.colours.size(); i++) {
+    if(colourName == materials.colours[i].name){
+      colour = materials.colours[i];
     }
   }
+  
   return colour;
 }
 
-vector<objContent> readObj(std::string filename, vector<Colour> &materials, float scalingFactor) {
+Image getTexture(std::string textureName, mtlContent material) {
+  Image texture;
+  if(textureName == material.textureName) {
+    texture = readPPM(material.textureFileName);
+  }
+  return texture;
+}
+
+void applyTexture(CanvasTriangle t, objContent object, float depthBuffer[WIDTH][HEIGHT], vec3 cameraPosition, bool wrapAround) {
+  for(int i=0; i < (int)object.faces.size(); i++) {
+    t.vertices[0].texturePoint.x = object.faces[i].texturePoints[0].x * object.texture.w;
+    t.vertices[0].texturePoint.y = object.faces[i].texturePoints[0].y * object.texture.h;
+    t.vertices[1].texturePoint.x = object.faces[i].texturePoints[1].x * object.texture.w;
+    t.vertices[1].texturePoint.y = object.faces[i].texturePoints[1].y * object.texture.h;
+    t.vertices[2].texturePoint.x = object.faces[i].texturePoints[2].x * object.texture.w;
+    t.vertices[2].texturePoint.y = object.faces[i].texturePoints[2].y * object.texture.h;
+    textureTriangle(t, object.texture, depthBuffer, cameraPosition, wrapAround);
+  }
+}
+
+vector<objContent> readObj(std::string filename, mtlContent &materials, float scalingFactor) {
   vector<vec3> vertices;
+  vector<TexturePoint> texturePoints;
   vector<objContent> objectVector;
 
   std::ifstream in(filename, std::ios::in);
@@ -211,6 +256,7 @@ vector<objContent> readObj(std::string filename, vector<Colour> &materials, floa
   while(in.eof() == false) {
     objContent object;
     std::string colourName;
+    std::string textureName;
 
     std::getline(in, line);
     std::istringstream objNameLine(line);
@@ -228,7 +274,13 @@ vector<objContent> readObj(std::string filename, vector<Colour> &materials, floa
     objColourLine >> objCommand;
     if(objCommand == "usemtl") {
       objColourLine >> colourName;
-      object.colour = getColour(colourName, materials);
+      if(object.objName != "logo") {
+        object.colour = getColour(colourName, materials);
+      }
+      else {
+        object.colour = Colour(255, 98, 0);
+        object.texture = getTexture(colourName, materials);
+      }
     }
     else {
       std::cerr << "error reading object colour" << endl;
@@ -253,34 +305,96 @@ vector<objContent> readObj(std::string filename, vector<Colour> &materials, floa
       objVertexFaceLine.str(line);
       objVertexFaceLine >> objCommand;
     }
-    while(objCommand == "f" && !line.empty()) {
-      std::string v0, v1, v2;
-      int i0, i1, i2;
-      std::string vertexIndex;
-      std::string::size_type slashPos;
 
-      objVertexFaceLine >> v0 >> v1 >> v2;
+    if(object.objName == "logo") {
+      std::istringstream objTexturePointLine(line);
+      objTexturePointLine >> objCommand;
+      while(objCommand == "vt") {
+        TexturePoint texturePoint;
+        float x, y;
 
-      i0 = std::stoi(v0, &slashPos);
+        objTexturePointLine >> x >> y;
+        texturePoint.x = x;
+        texturePoint.y = y;
+        texturePoints.push_back(texturePoint);
 
-      i1 = std::stoi(v1, &slashPos);
+        std::getline(in, line);
+        objTexturePointLine.clear();
+        objTexturePointLine.str(line);
+        objTexturePointLine >> objCommand;
+      }
 
-      i2 = std::stoi(v2, &slashPos);
+      while(objCommand == "f" && !line.empty()) {
+        std::string v0, v1, v2;
+        int i0, i1, i2, t0, t1, t2;
+        string* v0split;
+        string* v1split;
+        string* v2split;
 
-      ModelTriangle face(vertices[i0-1], vertices[i1-1], vertices[i2-1], object.colour);
-      object.faces.push_back(face);
+        objTexturePointLine >> v0 >> v1 >> v2;
+        v0split = split(v0, '/');
+        v1split = split(v1, '/');
+        v2split = split(v2, '/');
+        
+        
+        i0 = std::stoi(v0split[0]);
 
-      std::getline(in, line);
-      objVertexFaceLine.clear();
-      objVertexFaceLine.str(line);
-      objVertexFaceLine >> objCommand;
+        i1 = std::stoi(v1split[0]);
+
+        i2 = std::stoi(v2split[0]);
+
+        t0 = std::stoi(v0split[1]);
+
+        t1 = std::stoi(v1split[1]);
+
+        t2 = std::stoi(v2split[1]);
+
+        ModelTriangle face(vertices[i0-1], vertices[i1-1], vertices[i2-1], object.colour);
+        face.texturePoints[0].x = texturePoints[t0-1].x;
+        face.texturePoints[0].y = texturePoints[t0-1].y;
+        face.texturePoints[1].x = texturePoints[t1-1].x;
+        face.texturePoints[1].y = texturePoints[t1-1].y;
+        face.texturePoints[2].x = texturePoints[t2-1].x;
+        face.texturePoints[2].y = texturePoints[t2-1].y;
+        object.faces.push_back(face);
+
+        std::getline(in, line);
+        objTexturePointLine.clear();
+        objTexturePointLine.str(line);
+        objTexturePointLine >> objCommand;
+      }
+      objectVector.push_back(object);
     }
+    else {
+      while(objCommand == "f" && !line.empty()) {
+        std::string v0, v1, v2;
+        int i0, i1, i2;
+        std::string::size_type slashPos;
+
+        objVertexFaceLine >> v0 >> v1 >> v2;
+
+        i0 = std::stoi(v0, &slashPos);
+
+        i1 = std::stoi(v1, &slashPos);
+
+        i2 = std::stoi(v2, &slashPos);
+
+        ModelTriangle face(vertices[i0-1], vertices[i1-1], vertices[i2-1], object.colour);
+        object.faces.push_back(face);
+
+        std::getline(in, line);
+        objVertexFaceLine.clear();
+        objVertexFaceLine.str(line);
+        objVertexFaceLine >> objCommand;
+      }
     objectVector.push_back(object);
+    }
   }
+    
   return objectVector;
 }
 
-Image readPPM(const char *filename)
+Image readPPM(std::string filename)
 {
     std::ifstream ifs;
     std::string line;
@@ -482,6 +596,53 @@ void drawLine(CanvasPoint from, CanvasPoint to, float depthBuffer[WIDTH][HEIGHT]
   }
 }
 
+void drawTextureLine(CanvasPoint from, CanvasPoint to, float depthBuffer[WIDTH][HEIGHT], Image sourceTexture, vec3 cameraPostion, bool wrapAround) {
+  CanvasPoint pixel;
+  int textureArrayIndex, textureRed, textureGreen, textureBlue;
+  float xDiff = to.x - from.x;
+  float yDiff = to.y - from.y;
+  float depthDiff = to.depth - from.depth;
+  float numberOfSteps = std::max(abs(xDiff), abs(yDiff));
+  float depthStepSize = depthDiff/numberOfSteps;
+  
+  if (to.x < from.x) {
+    std::swap(to.x, from.x);
+    std::swap(to.y, from.y);
+    std::swap(to.texturePoint.x, from.texturePoint.x);
+    std::swap(to.texturePoint.y, from.texturePoint.y);
+  }
+
+  for (float x=from.x; x < to.x; x++) {
+    float depth = from.depth + (depthStepSize*x);
+    float lambda = (x - from.x) / (to.x - from.x);
+    pixel.x = x;
+    pixel.y = (1-lambda)*from.y + lambda*to.y;
+    pixel.texturePoint.x = std::round((1-lambda)*from.texturePoint.x + lambda*to.texturePoint.x);
+    pixel.texturePoint.y = std::round((1-lambda)*from.texturePoint.y + lambda*to.texturePoint.y);
+    textureArrayIndex = (pixel.texturePoint.y*sourceTexture.w) + pixel.texturePoint.x;
+    textureRed = sourceTexture.pixels[textureArrayIndex].r*255;
+    textureGreen = sourceTexture.pixels[textureArrayIndex].g*255;
+    textureBlue = sourceTexture.pixels[textureArrayIndex].b*255;
+    int colour = packRGB(textureRed, textureGreen, textureBlue, 1.0f);
+    if(wrapAround) {                                          
+      int modX = (int)pixel.x % WIDTH;
+      int modY = (int)pixel.y % HEIGHT;
+      modX = modX < 0 ? modX + WIDTH : modX;
+      modY = modY < 0 ? modY + HEIGHT : modY;
+      if (depth < depthBuffer[modX][modY]) {
+        depthBuffer[modX][modY] = depth;
+        window.setPixelColour(modX, modY, colour);
+      }
+    } 
+    else {                
+      if (pixel.x >=0 && pixel.x < WIDTH && pixel.y >=0 && pixel.y < HEIGHT){
+        depthBuffer[(int)pixel.x][(int)pixel.y] = depth;
+        window.setPixelColour(pixel.x, pixel.y, colour);
+      }        
+    }    
+  }
+}
+
 void drawTriangle(CanvasTriangle t, int colour, float depthBuffer[WIDTH][HEIGHT], bool wrapAround) {
   CanvasPoint t0 = t.vertices[0];
   CanvasPoint t1 = t.vertices[1];
@@ -532,7 +693,7 @@ void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HE
 
   CanvasPoint extraPoint = {xExtraPoint, midPoint.y, depthExtraPoint};
 
-  for (float y=minPoint.y; y < midPoint.y; ++y) {
+  for (float y=minPoint.y; y < midPoint.y; y++) {
     float x1 = minPoint.x +  minMaxSlope*(y - minPoint.y);
     float x2 = minPoint.x +  minMidSlope*(y - minPoint.y);
     float d1 = minPoint.depth + minMaxDepthSlope*(y - minPoint.y);
@@ -540,12 +701,81 @@ void fillTriangle(CanvasTriangle t, uint32_t colour, float depthBuffer[WIDTH][HE
     drawLine({x1, y, d1}, {x2, y, d2}, depthBuffer, colour, wrapAround);
   }
 
-  for (float y=midPoint.y; y < maxPoint.y; ++y) {
+  for (float y=midPoint.y; y < maxPoint.y; y++) {
     float x1 = extraPoint.x +  minMaxSlope*(y - midPoint.y);
     float x2 = midPoint.x +  midMaxSlope*(y - midPoint.y);
     float d1 = extraPoint.depth + minMaxDepthSlope*(y - midPoint.y);
     float d2 = midPoint.depth + midMaxDepthSlope*(y - midPoint.y);
     drawLine({x1, y, d1}, {x2, y, d2}, depthBuffer, colour, wrapAround);
+  }
+}
+
+void textureTriangle(CanvasTriangle t, Image sourceTexture, float depthBuffer[WIDTH][HEIGHT], vec3 cameraPosition, bool wrapAround) {
+    
+  CanvasTriangle sortedT = sortVertices(t);
+
+  //sort image vertices and texture points
+
+  CanvasPoint minPoint = sortedT.vertices[0];
+  CanvasPoint midPoint = sortedT.vertices[1];
+  CanvasPoint maxPoint = sortedT.vertices[2];
+
+  float lambda = (midPoint.y - minPoint.y) / (maxPoint.y - minPoint.y); //lambda = barycentric weight
+
+  float xExtraPoint = (1 - lambda)*minPoint.x + lambda*maxPoint.x;
+
+  float xExtraPointTexture = (1 - lambda)*minPoint.texturePoint.x + lambda*maxPoint.texturePoint.x;
+  float yExtraPointTexture = (1 - lambda)*minPoint.texturePoint.y + lambda*maxPoint.texturePoint.y;
+
+  CanvasPoint extraPoint = {xExtraPoint, midPoint.y};
+
+  extraPoint.texturePoint = TexturePoint(xExtraPointTexture, yExtraPointTexture);
+
+  // for(int i=0; i < 3; i++) {
+  //   CanvasPoint closestVertex, furthestVertex;
+  //   float vertexDistanceToCamera;
+    
+  //   vertexDistanceToCamera = cameraPosition.z - t.vertices[i].depth;
+  //   closestVertex = t.vertices[0];
+  //   furthestVertex = t.vertices[2];
+  //   if(vertexDistanceToCamera > furthestVertex.depth) {
+  //     furthestVertex = t.vertices[i];
+  //   }
+  //   if(vertexDistanceToCamera > 0) {
+  //     closestVertex = vertexDistanceToCamera < closestVertex.depth ? t.vertices[i] : closestVertex; 
+  //   }
+  //   // std::cout << closestVertex << " " << furthestVertex << " " << vertexDistanceToCamera << endl;
+  // }
+
+  for (float y=minPoint.y; y < midPoint.y; y++) {
+    CanvasPoint rakeStart, rakeEnd;
+        
+    float lambda1 = (y - minPoint.y) / (midPoint.y - minPoint.y);
+    rakeStart.x = (1-lambda1)*minPoint.x + lambda1*midPoint.x;
+    rakeEnd.x = (1-lambda1)*minPoint.x + lambda1*extraPoint.x;
+    rakeStart.y = y;
+    rakeEnd.y = y;
+    rakeStart.texturePoint.x = (1-lambda1)*minPoint.texturePoint.x + lambda1*midPoint.texturePoint.x;
+    rakeStart.texturePoint.y = (1-lambda1)*minPoint.texturePoint.y + lambda1*midPoint.texturePoint.y;  
+    rakeEnd.texturePoint.x = (1-lambda1)*minPoint.texturePoint.x + lambda1*extraPoint.texturePoint.x;
+    rakeEnd.texturePoint.y = (1-lambda1)*minPoint.texturePoint.y + lambda1*extraPoint.texturePoint.y;
+
+    drawTextureLine(rakeStart, rakeEnd, depthBuffer, sourceTexture, cameraPosition, wrapAround);    
+  }
+
+  for (float y=midPoint.y; y < maxPoint.y; y++) {
+    CanvasPoint rakeStart, rakeEnd;
+    float lambda2 = (y - midPoint.y) / (maxPoint.y - midPoint.y);
+    rakeStart.x = (1-lambda2)*midPoint.x + lambda2*maxPoint.x;
+    rakeEnd.x = (1-lambda2)*extraPoint.x + lambda2*maxPoint.x;
+    rakeStart.y = y;
+    rakeEnd.y = y;
+    rakeStart.texturePoint.x = (1-lambda2)*midPoint.texturePoint.x + lambda2*maxPoint.texturePoint.x;
+    rakeStart.texturePoint.y = (1-lambda2)*midPoint.texturePoint.y + lambda2*maxPoint.texturePoint.y;  
+    rakeEnd.texturePoint.x = (1-lambda2)*extraPoint.texturePoint.x + lambda2*maxPoint.texturePoint.x;
+    rakeEnd.texturePoint.y = (1-lambda2)*extraPoint.texturePoint.y + lambda2*maxPoint.texturePoint.y;
+
+    drawTextureLine(rakeStart, rakeEnd, depthBuffer, sourceTexture, cameraPosition, wrapAround);
   }
 }
 
@@ -584,6 +814,8 @@ RayObjectIntersection getClosestIntersection(vector<objContent> o, vec3 cameraPo
         for(int j=0; j < (int)o[i].faces.size(); j++) {
             vec3 e0 = o[i].faces[j].vertices[1] - o[i].faces[j].vertices[0];
             vec3 e1 = o[i].faces[j].vertices[2] - o[i].faces[j].vertices[0];
+            vec2 e0Texture = o[i].faces[j].texturePoints[1] - o[i].faces[j].texturePoints[0];
+            vec2 e1Texture = o[i].faces[j].texturePoints[2] - o[i].faces[j].texturePoints[0];            
             vec3 startPointVector = cameraPosition - o[i].faces[j].vertices[0];
             mat3 differenceMatrix(-rayDirection, e0, e1);
             vec3 possibleSolution = glm::inverse(differenceMatrix) * startPointVector;
@@ -591,6 +823,7 @@ RayObjectIntersection getClosestIntersection(vector<objContent> o, vec3 cameraPo
             && possibleSolution.y + possibleSolution.z <= 1 && possibleSolution.x < closestDistance) {
                 intersection.triangle.intersectedTriangle = o[i].faces[j];
                 intersection.triangle.intersectionPoint = o[i].faces[j].vertices[0] + possibleSolution.y*e0 + possibleSolution.z*e1;
+                intersection.triangle.intersectionTexturePoint = o[i].faces[j].texturePoints[0] + possibleSolution.y*e0Texture + possibleSolution.z*e1Texture;
                 intersection.triangle.distanceFromCamera = possibleSolution.x;
                 intersection.object = o[i];
                 closestDistance = possibleSolution.x;
@@ -679,7 +912,7 @@ float addShadow(RayObjectIntersection intersection, vec3 lightPos, vector<objCon
   shadowRayToObjectDistance = glm::distance(intersection.triangle.intersectionPoint, shadowIntersection.triangle.intersectionPoint);
   shadowRayToLightDistance = glm::distance(intersection.triangle.intersectionPoint, lightPos);
 
-  if (shadowRayToObjectDistance < shadowRayToLightDistance && shadowRayToLightDistance > 5
+  if (shadowRayToObjectDistance < shadowRayToLightDistance && shadowRayToLightDistance > 1
       && intersection.object.objName != shadowIntersection.object.objName) {
     newBrightness = 0.1f;
   } else {
@@ -698,7 +931,7 @@ void drawWireframe(vector<objContent> o, int focalLength, vec3 cameraPosition, m
   for(int i=0; i < (int)o.size(); i++) {
     for(int j=0; j < (int)o[i].faces.size(); j++) {
       CanvasTriangle t = modelToCanvas(o[i].faces[j], focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight);
-      int colour = packRGB(o[i].colour.red, o[i].colour.green, o[i].colour.blue, 1.0f);
+      int colour = packRGB(o[i].colour.red, o[i].colour.green, o[i].colour.blue, 1.0f);  
       drawTriangle(t, colour, depthBuffer, wrapAround);
     }
   }
@@ -714,8 +947,12 @@ void drawRasterised(vector<objContent> o, int focalLength, vec3 cameraPosition, 
   for(int i=0; i < (int)o.size(); i++) {
     for(int j=0; j < (int)o[i].faces.size(); j++) {
       CanvasTriangle t = modelToCanvas(o[i].faces[j], focalLength, cameraPosition, cameraOrientation, canvasWidth, canvasHeight);
-      int colour = packRGB(o[i].colour.red, o[i].colour.green, o[i].colour.blue, 1.0f);
-      fillTriangle(t, colour, depthBuffer, wrapAround);
+      if(o[i].objName != "null") {
+        int colour = packRGB(o[i].colour.red, o[i].colour.green, o[i].colour.blue, 1.0f);
+        fillTriangle(t, colour, depthBuffer, wrapAround);
+      } else {
+        applyTexture(t, o[i], depthBuffer, cameraPosition, wrapAround);
+      }
     }
   }
 }
@@ -726,19 +963,33 @@ vec3 lightPos, bool wrapAround) {
     vec3 ray;
     CanvasPoint drawPoint;
     float noShadowBrightness;
+    
 
-    for(int x=0; x < WIDTH; x++) {
-        for(int y=0; y < HEIGHT; y++) {
+    for(int y=0; y < HEIGHT; y++) {
+        for(int x=0; x < WIDTH; x++) {
             drawPoint.x = x - WIDTH/2;
             drawPoint.y = -(y - HEIGHT/2);
             ray = vec3(drawPoint.x, drawPoint.y, -(WIDTH/2) / tan(M_PI/8)) * cameraOrientation;
             intersection = getClosestIntersection(o, cameraPosition, ray);
             noShadowBrightness = addLighting(intersection, lightPos, cameraPosition);
             drawPoint.brightness = addShadow(intersection, lightPos, o, cameraPosition, noShadowBrightness);
-            int colour = packRGB(intersection.triangle.intersectedTriangle.colour.red, intersection.triangle.intersectedTriangle.colour.green,
-            intersection.triangle.intersectedTriangle.colour.blue, drawPoint.brightness);
-            if(intersection.triangle.distanceFromCamera < INFINITY) {
+            if(intersection.triangle.distanceFromCamera < INFINITY && intersection.object.objName != "logo") {
+                int colour = packRGB(intersection.triangle.intersectedTriangle.colour.red,
+                                     intersection.triangle.intersectedTriangle.colour.green,
+                                     intersection.triangle.intersectedTriangle.colour.blue,
+                                     drawPoint.brightness);
                 window.setPixelColour(x, y, colour);
+            } 
+            if(intersection.triangle.distanceFromCamera < INFINITY && intersection.object.objName == "logo") {
+              int textureIndexWidth, textureIndexHeight, textureArrayIndex, textureRed, textureGreen, textureBlue, colour;
+              textureIndexWidth = intersection.triangle.intersectionTexturePoint.x * intersection.object.texture.w;
+              textureIndexHeight = intersection.triangle.intersectionTexturePoint.y * intersection.object.texture.h; 
+              textureArrayIndex = (textureIndexWidth * intersection.object.texture.w) + textureIndexHeight;
+              textureRed = intersection.object.texture.pixels[textureArrayIndex ].r*255;
+              textureGreen = intersection.object.texture.pixels[textureArrayIndex ].g*255;
+              textureBlue = intersection.object.texture.pixels[textureArrayIndex ].b*255;
+              colour = packRGB(textureRed, textureGreen, textureBlue, drawPoint.brightness);
+              window.setPixelColour(x, y, colour);
             }
         }
     }
