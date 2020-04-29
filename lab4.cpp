@@ -4,6 +4,7 @@
 #include <RayTriangleIntersection.h>
 #include <Utils.h>
 #include <Image.h>
+#include <mtl.h>
 #include <glm/glm.hpp>
 #include <fstream>
 #include <vector>
@@ -68,6 +69,14 @@ Colour getColour(std::string colourName, mtlContent materials);
 Image getTexture(std::string textureName, mtlContent material);
 void applyTexture(CanvasTriangle t, objContent object, float depthBuffer[WIDTH][HEIGHT], vec3 cameraPosition, bool wrapAround);
 
+<<<<<<< HEAD
+=======
+vector<Colour> readMTL(std::string filename);
+vector<Mtl> readLogoMTL(std::string filename);
+vector<objContent> readObj(std::string filename, vector<Colour> &materials, float scalingFactor);
+Image readPPM(const char *filename);
+Colour getColour(std::string colourName, vector<Colour> colours);
+>>>>>>> 8b38b810451bd465e7940094263405a0845f4495
 
 CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth,
  float canvasHeight);
@@ -197,8 +206,44 @@ mtlContent readMTL(std::string filename) {
   return mtlContent;
 }
 
+<<<<<<< HEAD
 
 Colour getColour(std::string colourName, mtlContent materials) {
+=======
+vector<Mtl> readLogoMTL(std::string filename) {
+  vector<Mtl> material;
+  Mtl mtl;
+  std::ifstream in(filename, std::ios::in);
+  std::string line;
+
+  while (in.eof() == false) {
+    std::string mtlCommand;
+    std::string s; //texture scalar
+    std::string o; //texture map position
+    std::string mm; //texture scalar variability
+    std::string ppm; //texture filename
+    float us, vs, ws, uo, vo, wo, base, gain;
+
+    std::getline(in, line);
+    std::istringstream inLine(line);
+    inLine >> mtlCommand;
+    if(mtlCommand == "map_Kd"){
+      inLine >> s >> us >> vs >> ws >> o >> uo >> vo >> wo >> mm >> base >> gain >> ppm;
+    }
+    else {
+      std::cerr << "error reading newmtl" << endl;
+    }
+
+    Mtl mtl(ppm, us, vs, ws, uo, vo, wo, base, gain);
+    material.push_back(mtl);
+    std::getline(in, line);
+  }
+
+  return material;
+}
+
+Colour getColour(std::string colourName, vector<Colour> colours) {
+>>>>>>> 8b38b810451bd465e7940094263405a0845f4495
   Colour colour;
   for(int i=0; i < (int)materials.colours.size(); i++) {
     if(colourName == materials.colours[i].name){
@@ -433,6 +478,41 @@ Image readPPM(std::string filename)
     }
 
     return ppm;
+}
+
+bool Image::operator >> (const char *filename, Image ppm, int width, int height)
+{
+    std::ofstream ifs;
+    ifs.open(filename, std::ios::binary);
+    try {
+        if (ifs.fail()) {
+            throw("Can't open file");
+        }
+        ifs << "P6" <<"\n";
+        ifs << ppm.w << "\n";
+        ifs << ppm.h << "\n";
+        ifs << "255" << "\n";
+        int size = height * width;
+        std::vector<unsigned char> temp(size*3);
+        Vec3<float>* buff = static_cast<Vec3<float>*>(ppm.pixels);
+        for (int i = 0; i < size; i++) {
+            temp[i * 3] = static_cast<unsigned char>(buff[i].x * 255);
+            temp[i * 3 + 1] = static_cast<unsigned char>(buff[i].y * 255);
+            temp[i * 3 + 2] = static_cast<unsigned char>(buff[i].z * 255);
+        }
+        ifs.write(reinterpret_cast<char*>(&temp[0]), size * 3);
+        if (ifs.fail()) {
+          cerr << "Could not write data" << endl;
+          return false;
+        }
+        ifs.close();
+    }
+    catch (const char *err) {
+        fprintf(stderr, "%s\n", err);
+        ifs.close();
+    }
+
+    return true;
 }
 
 void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, vec3 lightPos, float canvasWidth, float canvasHeight,
