@@ -62,21 +62,12 @@ void textureTriangle(CanvasTriangle t, Image texture, float depthBuffer[WIDTH][H
 
 
 mtlContent readMTL(std::string filename);
-std::string readLogoMTL(std::string filename);
 vector<objContent> readObj(std::string filename, mtlContent &materials, float scalingFactor);
 Image readPPM(std::string filename);
 Colour getColour(std::string colourName, mtlContent materials);
 Image getTexture(std::string textureName, mtlContent material);
 void applyTexture(CanvasTriangle t, objContent object, float depthBuffer[WIDTH][HEIGHT], vec3 cameraPosition, bool wrapAround);
 
-<<<<<<< HEAD
-=======
-vector<Colour> readMTL(std::string filename);
-vector<Mtl> readLogoMTL(std::string filename);
-vector<objContent> readObj(std::string filename, vector<Colour> &materials, float scalingFactor);
-Image readPPM(const char *filename);
-Colour getColour(std::string colourName, vector<Colour> colours);
->>>>>>> 8b38b810451bd465e7940094263405a0845f4495
 
 CanvasTriangle modelToCanvas(ModelTriangle modelT, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, float canvasWidth,
  float canvasHeight);
@@ -102,6 +93,7 @@ mat3 lookAt(vec3 cameraPosition);
 vec3 verticalOrbit(vec3 cameraPosition, double orbitAngle);
 vec3 orbit(vec3 cameraPosition, double panOrbitAngle, double tiltOrbitAngle);
 void applyPPM(vector<objContent> content, Image ppmFile);
+void writePPM(Image ppm);
 
 DrawingWindow window = DrawingWindow(WIDTH, HEIGHT, false);
 
@@ -124,30 +116,65 @@ int main(int argc, char* argv[])
   float canvasHeight = 30;
   vec3 cameraPosition = vec3(CAMERAX, CAMERAY, CAMERAZ);
   mat3 cameraOrientation = mat3(1.0f);
-  vec3 lightPos = vec3(-0.2, 5, -4);
+  vec3 lightPos = vec3(-0.2, 3, -2);
   mtlContent materials;
   double translationValue = 0.1;
   double rotationDegree = 1;
   double orbitAngle = 3;
   double panOrbitAngle = 3;
   double tiltOrbitAngle = 3;
-  bool isWireframe = true;
+  bool isWireframe = false;
   bool isRasterised = false;
-  bool isRayTraced = false;
+  bool isRayTraced = true;
   bool wrapAround = false;
 
   vector <objContent> cornellBox = readObj("test3.obj", materials, scalingFactor);
+  Image ppm;
+  ppm.w = WIDTH;
+  ppm.h = HEIGHT;
+  int frameNumber = 1;
+
   while(true)
-  {
+  {    
     // We MUST poll for events - otherwise the window will freeze !
-    if(window.pollForInputEvents(&event)) handleEvent(event, &cameraPosition, &cameraOrientation, &lightPos, translationValue, rotationDegree,
-     orbitAngle, panOrbitAngle, tiltOrbitAngle, &isWireframe, &isRasterised, &isRayTraced, &wrapAround);
+    if(window.pollForInputEvents(&event)) {
+      handleEvent(event, &cameraPosition, &cameraOrientation, &lightPos, translationValue, rotationDegree,
+                  orbitAngle, panOrbitAngle, tiltOrbitAngle, &isWireframe, &isRasterised, &isRayTraced, &wrapAround);    
+    } 
 
     update(cornellBox, focalLength, cameraPosition, cameraOrientation, lightPos, canvasWidth, canvasHeight, isWireframe, isRasterised, isRayTraced,
      wrapAround);
+    
 
     // Need to render the frame at the end, or nothing actually gets shown on the screen !
     window.renderFrame();
+    cameraPosition = orbit(cameraPosition, panOrbitAngle, 0);
+    if(cameraPosition.z < 0 ) {
+      cameraPosition = orbit(cameraPosition, 0, tiltOrbitAngle);
+    }
+    else {      
+      cameraPosition = orbit(cameraPosition, 0, -tiltOrbitAngle);
+    }
+    cameraOrientation = lookAt(cameraPosition);
+    if(frameNumber < 243) {
+      if(frameNumber < 10) {
+        ppm.filename = "frame00" + std::to_string(frameNumber) + ".ppm";
+      }
+      else if(frameNumber < 100 && frameNumber >= 10) {
+        ppm.filename = "frame0" + std::to_string(frameNumber) + ".ppm";
+      }
+      else {
+        ppm.filename = "frame" + std::to_string(frameNumber) + ".ppm";
+      }
+      writePPM(ppm);
+      frameNumber++;
+    }
+    else {
+      window.clearPixels();
+      window.destroy();
+    }
+    
+    window.clearPixels();
   }
 }
 
@@ -444,10 +471,13 @@ Image readPPM(std::string filename)
     return ppm;
 }
 
-bool Image::operator >> (const char *filename, Image ppm, int width, int height)
-{
+void writePPM(Image ppm) {
+    char red, green, blue;
+    uint32_t pixel;
+    std::string filename;
+    filename = "./frames/finalRaytrace/" + ppm.filename;
     std::ofstream ifs;
-    ifs.open(filename, std::ios::binary);
+    ifs.open(filename, std::ios::out | std::ios::binary);
     try {
         if (ifs.fail()) {
             throw("Can't open file");
@@ -456,18 +486,17 @@ bool Image::operator >> (const char *filename, Image ppm, int width, int height)
         ifs << ppm.w << "\n";
         ifs << ppm.h << "\n";
         ifs << "255" << "\n";
-        int size = height * width;
-        std::vector<unsigned char> temp(size*3);
-        Vec3<float>* buff = static_cast<Vec3<float>*>(ppm.pixels);
-        for (int i = 0; i < size; i++) {
-            temp[i * 3] = static_cast<unsigned char>(buff[i].x * 255);
-            temp[i * 3 + 1] = static_cast<unsigned char>(buff[i].y * 255);
-            temp[i * 3 + 2] = static_cast<unsigned char>(buff[i].z * 255);
+        for(int y=0; y < HEIGHT; y++) {
+          for(int x=0; x < WIDTH; x++) {
+            pixel = window.pixelBuffer[WIDTH * y + x];
+            red = char((pixel & 0x00FF0000) >> 16);
+            green = char((pixel & 0x0000FF00) >> 8);
+            blue = char((pixel & 0x000000FF));
+            ifs << red << green << blue;
+          }
         }
-        ifs.write(reinterpret_cast<char*>(&temp[0]), size * 3);
         if (ifs.fail()) {
           cerr << "Could not write data" << endl;
-          return false;
         }
         ifs.close();
     }
@@ -475,8 +504,6 @@ bool Image::operator >> (const char *filename, Image ppm, int width, int height)
         fprintf(stderr, "%s\n", err);
         ifs.close();
     }
-
-    return true;
 }
 
 void update(vector<objContent> o, int focalLength, vec3 cameraPosition, mat3 cameraOrientation, vec3 lightPos, float canvasWidth, float canvasHeight,
@@ -601,6 +628,9 @@ void handleEvent(SDL_Event event, vec3 *cameraPosition, mat3 *cameraOrientation,
     else if(event.key.keysym.sym == SDLK_k) {
       *cameraPosition = verticalOrbit(*cameraPosition, orbitAngle);
       *cameraOrientation = verticalLookAt(*cameraPosition);
+    }
+    else if(event.key.keysym.sym == SDLK_ESCAPE) {
+      window.destroy();
     }
   }
   else if(event.type == SDL_MOUSEBUTTONDOWN) cout << "MOUSE CLICKED" << endl;

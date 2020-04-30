@@ -21,4 +21,5 @@ public:
 
     unsigned int w, h; // Image resolution
     Rgb *pixels; // 1D array of pixels
+    std::string filename;
 };
